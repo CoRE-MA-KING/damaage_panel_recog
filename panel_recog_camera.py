@@ -2,16 +2,23 @@
 import pyrealsense2 as rs
 import numpy as np
 import cv2
+import zenoh
+import random
+from domain.message import RobotCommand
+
+# ========= Zenoh セッション設定 =========
+KEY_PREFIX = "robot/command"
+# ====================================
 
 # ========= RealSense カラーカメラ パラメータ（仮で 0 に設定） =========
-RS_EXPOSURE     = 11+1
-RS_GAIN         = 0 # ゲイン（ISO感度相当） 固定
-RS_WHITEBALANCE = 5000-2800 # 色温度（ケルビン）
-RS_BRIGHTNESS   = 64-64 # 明るさ 固定   
-RS_CONTRAST     = 50 # コントラスト
-RS_SHARPNESS    = 50 # シャープネス
-RS_SATURATION   = 50 # 彩度
-RS_GAMMA        = 0+100 # ガンマq
+RS_EXPOSURE     = 12  # 1～10000          
+RS_GAIN         = 0 # ゲイン（ISO感度相当） 0～128
+RS_WHITEBALANCE = 4600 # 色温度（ケルビン） 800～6500
+RS_BRIGHTNESS   = 64-64 # 明るさ 固定 -64～64
+RS_CONTRAST     = 50 # コントラスト 0～100
+RS_SHARPNESS    = 50 # シャープネス 0～100
+RS_SATURATION   = 50 # 彩度 0～100
+RS_GAMMA        = 0+100 # ガンマ 0～100
 # ================================================================
 
 # ========= 検出ロジックの可調整パラメータ =========
@@ -193,47 +200,60 @@ def bbox_union(top, bottom):
 
 # ========= メインループ =========
 try:
-    while True:
-        frames = pipeline.wait_for_frames()
-        aligned = align.process(frames)
 
-        color_frame = aligned.get_color_frame()
-        depth_frame = aligned.get_depth_frame()
-        if not color_frame or not depth_frame:
-            continue
+    # セッションはwithで自動クローズ
+    with zenoh.open(zenoh.Config()) as session:
+        # フィールドごとにPublisherを1回だけ宣言して使い回す
+        publishers = {
+            key: session.declare_publisher(f"{KEY_PREFIX}/{key}")
+            for key in RobotCommand.model_fields.keys()
+        }  
 
-        color_image = np.asanyarray(color_frame.get_data())
-        hsv = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
+        while True:
+            frames = pipeline.wait_for_frames()
+            aligned = align.process(frames)
 
-        # 色ごとに矩形候補を抽出（★ここで MIN_BOX_H / MIN_BOX_W を適用）
-        boxes_by_color = {}
-        for color in ['blue', 'red']:
-            mask = get_led_mask(hsv, color)
-            boxes_by_color[color] = find_boxes(mask)
+            color_frame = aligned.get_color_frame()
+            depth_frame = aligned.get_depth_frame()
+            if not color_frame or not depth_frame:
+                continue
 
-        # 同色の上下ペアを検出・描画
-        for color in ['blue', 'red']:
-            pairs = pair_boxes_same_color(boxes_by_color[color])
-            for (top, bottom) in pairs:
-                box_col = (255, 0, 0) if color == 'blue' else (0, 0, 255)
-                # 個別の箱（参照用に枠のみ）
-                for (x, y, w, h) in (top, bottom):
-                    cv2.rectangle(color_image, (x, y), (x + w, y + h), box_col, 1)
+            color_image = np.asanyarray(color_frame.get_data())
+            hsv = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
 
-                # ペアの最小外接矩形＋中心
-                (ux, uy, uw, uh), (cx, cy) = bbox_union(top, bottom)
-                cv2.rectangle(color_image, (ux, uy), (ux + uw, uy + uh), (0, 255, 0), 2)
-                cv2.circle(color_image, (int(cx), int(cy)), 3, (0, 255, 0), -1)
-                cv2.putText(
-                    color_image,
-                    f"{color} cx,cy=({int(cx)},{int(cy)})",
-                    (ux, max(0, uy - 6)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA
-                )
+            # 色ごとに矩形候補を抽出（★ここで MIN_BOX_H / MIN_BOX_W を適用）
+            boxes_by_color = {}
+            for color in ['blue', 'red']:
+                mask = get_led_mask(hsv, color)
+                boxes_by_color[color] = find_boxes(mask)
 
-        cv2.imshow('Panel (paired by same-color top & bottom)', color_image)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+            # 同色の上下ペアを検出・描画
+            for color in ['blue', 'red']:
+                pairs = pair_boxes_same_color(boxes_by_color[color])
+                for (top, bottom) in pairs:
+                    box_col = (255, 0, 0) if color == 'blue' else (0, 0, 255)
+                    # 個別の箱（参照用に枠のみ）
+                    for (x, y, w, h) in (top, bottom):
+                        cv2.rectangle(color_image, (x, y), (x + w, y + h), box_col, 1)
+
+                    # ペアの最小外接矩形＋中心
+                    (ux, uy, uw, uh), (cx, cy) = bbox_union(top, bottom)
+                    cv2.rectangle(color_image, (ux, uy), (ux + uw, uy + uh), (0, 255, 0), 2)
+                    cv2.circle(color_image, (int(cx), int(cy)), 3, (0, 255, 0), -1)
+                    cv2.putText(
+                        color_image,
+                        f"{color} cx,cy=({int(cx)},{int(cy)})",
+                        (ux, max(0, uy - 6)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA
+                    )
+
+            cv2.imshow('Panel (paired by same-color top & bottom)', color_image)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+            for key, pub in publishers.items():
+                value = random.randint(0, 100)  # ダミー値
+                pub.put(str(value))             # 文字列で送信
 
 finally:
     pipeline.stop()
