@@ -11,7 +11,7 @@ KEY_PREFIX = "robot/command"
 # ====================================
 
 # ========= RealSense カラーカメラ パラメータ（仮で 0 に設定） =========
-RS_EXPOSURE     = 12  # 1～10000          
+RS_EXPOSURE     = 8  # 1～10000          
 RS_GAIN         = 0 # ゲイン（ISO感度相当） 0～128
 RS_WHITEBALANCE = 4600 # 色温度（ケルビン） 800～6500
 RS_BRIGHTNESS   = 64-64 # 明るさ 固定 -64～64
@@ -227,6 +227,11 @@ try:
                 mask = get_led_mask(hsv, color)
                 boxes_by_color[color] = find_boxes(mask)
 
+            target_x, target_y = 640, 360  # 初期値（画面中心）
+            depth = 0
+            dummy = 0
+            target_to_center_distance = 9999
+
             # 同色の上下ペアを検出・描画
             for color in ['blue', 'red']:
                 pairs = pair_boxes_same_color(boxes_by_color[color])
@@ -247,13 +252,25 @@ try:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA
                     )
 
+                    if abs(cx-640) < abs(target_to_center_distance):
+                        target_to_center_distance = cx-640
+                        target_x = int(cx)
+                        target_y = int(cy)
+
             cv2.imshow('Panel (paired by same-color top & bottom)', color_image)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
             for key, pub in publishers.items():
-                value = random.randint(0, 100)  # ダミー値
-                pub.put(str(value))             # 文字列で送信
+                if key == "target_x":
+                    value = target_x
+                elif key == "target_y":
+                    value = target_y
+                elif key == "depth":
+                    value = depth
+                elif key == "dummy":
+                    value = dummy                
+                pub.put(str(value))  # 文字列で送信
 
 finally:
     pipeline.stop()
