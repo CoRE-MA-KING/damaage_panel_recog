@@ -12,7 +12,7 @@
 依存関係のインストール（なにか足りてないかも）
 
 ```bash
-pip3 install numpy opencv-python 
+pip3 install numpy opencv-python pydantic eclipse-zenoh 
 pip3 intall pyrealsense2  # 入らないディストリビューションもある
 ```
 
@@ -25,8 +25,14 @@ pyrealsense2が入らない場合は、[ソースビルド＆インストール]
 いまの設定は基本固定で、試合時のパネルの輝度に合わせて`RS_EXPOSURE `によってシャッタースピードのみを変更する予定。
 今は赤色と青色のパネルを同時に検知しているが、試合時にはどちらか片方のみでいいはず。それを分けるとより誤検知は減ると思われる。
 
+アタッカー向けにZenohでpublishする場合は`-p`もしくは、`--publish`オプションを付けます。何も付けないと、単一プロセス内で完結した画像処理を実行します。
+
 ```bash
+# 画像処理単体で実行
 python3 panel_recog_camera.py
+
+# 画像処理を実行し、結果をpublishする
+python3 panel_recog_camera.py -p
 ```
 
 ## panel_recog_static.py
@@ -35,7 +41,7 @@ python3 panel_recog_camera.py
 ただし、白飛びが大きくなかなかうまくいかなかった。
 
 ```bash
-python3 panel_recog_static.py
+python3 panel_recog_static.py  --
 ```
 
 ## camera_parameter_setting.py

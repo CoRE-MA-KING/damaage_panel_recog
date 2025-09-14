@@ -1,57 +1,63 @@
 #!/usr/bin/env python3
-import pyrealsense2 as rs
+# -*- coding: utf-8 -*-
+"""
+RealSenseで赤/青の上下ペア矩形を検出し、中心座標を計算。
+-p/--publish を付けたときのみ Zenoh に target_x/target_y/depth/dummy を publish します。
+引数なしのときは Zenoh を一切使わず、純粋な画像処理プログラムとして動作します。
+"""
+
+import argparse
+import sys
 import numpy as np
 import cv2
-import zenoh
-import random
-from domain.message import RobotCommand
+import pyrealsense2 as rs
 
-# ========= Zenoh セッション設定 =========
+# ========= Zenoh セッション設定（キー接頭）=========
 KEY_PREFIX = "robot/command"
-# ====================================
+# ================================================
 
 # ========= RealSense カラーカメラ パラメータ（仮で 0 に設定） =========
-RS_EXPOSURE     = 8  # 1～10000          
-RS_GAIN         = 0 # ゲイン（ISO感度相当） 0～128
-RS_WHITEBALANCE = 4600 # 色温度（ケルビン） 800～6500
-RS_BRIGHTNESS   = 64-64 # 明るさ 固定 -64～64
-RS_CONTRAST     = 50 # コントラスト 0～100
-RS_SHARPNESS    = 50 # シャープネス 0～100
-RS_SATURATION   = 50 # 彩度 0～100
-RS_GAMMA        = 0+100 # ガンマ 0～100
+RS_EXPOSURE     = 10   # 1～10000          
+RS_GAIN         = 0    # 0～128
+RS_WHITEBALANCE = 4600 # 800～6500 [K]
+RS_BRIGHTNESS   = 64-64
+RS_CONTRAST     = 50
+RS_SHARPNESS    = 50
+RS_SATURATION   = 50
+RS_GAMMA        = 0+100
 # ================================================================
 
 # ========= 検出ロジックの可調整パラメータ =========
-AREA_MIN       = 100   # 単色領域の最小面積(px^2)
-KERNEL_SZ      = 3     # モルフォロジー用カーネルサイズ
-WIDTH_TOL      = 0.25  # 上下の幅差許容（max(w_top,w_bottom)比）
-MIN_H_OVERLAP  = 0.50  # 上下の水平オーバーラップ比（min幅に対する比）
-MIN_V_GAP      = 2     # 上下の最小垂直間隔(px)
+AREA_MIN       = 100    # px^2
+KERNEL_SZ      = 3
+WIDTH_TOL      = 0.25
+MIN_H_OVERLAP  = 0.50
+MIN_V_GAP      = 2
 
 # ★ 色ごとの矩形候補抽出段階での最小サイズ制限
-MIN_BOX_H      = 10    # 候補の最小高さ(px)
-MIN_BOX_W      = 50   # 候補の最小幅(px)
+MIN_BOX_H      = 10     # px
+MIN_BOX_W      = 50     # px
 # ================================================
 
 # ========= HSV 範囲 =========
 COLOR_RANGES = {
     'blue': ([105, 180, 120], [125, 255, 255]),
-    'red1': ([0, 180, 120], [10, 255, 255]),
+    'red1': ([0,   180, 120], [10,  255, 255]),
     'red2': ([160, 180, 120], [180, 255, 255]),
 }
 # ==========================
 
-# ========= RealSense 初期化 =========
-pipeline = rs.pipeline()
-config = rs.config()
-config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
-config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
-profile = pipeline.start(config)
 
-def get_color_sensor(dev: rs.device) -> rs.sensor:
+def parse_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description="Panel detector with optional Zenoh publishing")
+    ap.add_argument("-p", "--publish", action="store_true",
+                    help="Zenoh に publish する（付けない場合は画像処理のみ）")
+    return ap.parse_args()
+
+
+def get_color_sensor(dev: rs.device) -> rs.sensor | None:
     """RGB/Color センサを推定して返す（見つからなければ先頭センサを返す）"""
     sensors = dev.query_sensors()
-    # 名前で RGB/Color を優先
     for s in sensors:
         try:
             name = s.get_info(rs.camera_info.name)
@@ -59,44 +65,49 @@ def get_color_sensor(dev: rs.device) -> rs.sensor:
                 return s
         except Exception:
             pass
-    # フォールバック
     return sensors[0] if len(sensors) > 0 else None
 
-# カラーセンサに各種パラメータ設定
-try:
-    color_sensor = get_color_sensor(profile.get_device())
-    if color_sensor is not None:
-        # 推奨：自動制御を切ってから手動設定
-        if color_sensor.supports(rs.option.enable_auto_exposure):
-            color_sensor.set_option(rs.option.enable_auto_exposure, 0)
-        if color_sensor.supports(rs.option.enable_auto_white_balance):
-            color_sensor.set_option(rs.option.enable_auto_white_balance, 0)
 
-        if color_sensor.supports(rs.option.exposure):
-            color_sensor.set_option(rs.option.exposure, RS_EXPOSURE)
-        if color_sensor.supports(rs.option.gain):
-            color_sensor.set_option(rs.option.gain, RS_GAIN)
-        if color_sensor.supports(rs.option.white_balance):
-            color_sensor.set_option(rs.option.white_balance, RS_WHITEBALANCE)
-        if color_sensor.supports(rs.option.brightness):
-            color_sensor.set_option(rs.option.brightness, RS_BRIGHTNESS)
-        if color_sensor.supports(rs.option.contrast):
-            color_sensor.set_option(rs.option.contrast, RS_CONTRAST)
-        if color_sensor.supports(rs.option.sharpness):
-            color_sensor.set_option(rs.option.sharpness, RS_SHARPNESS)
-        if color_sensor.supports(rs.option.saturation):
-            color_sensor.set_option(rs.option.saturation, RS_SATURATION)
-        if color_sensor.supports(rs.option.gamma):
-            color_sensor.set_option(rs.option.gamma, RS_GAMMA)
-    else:
-        print("[WARN] カラーセンサが見つかりませんでした。パラメータ設定をスキップします。")
-except Exception as e:
-    print("[WARN] RealSense パラメータ設定中に例外:", e)
+def setup_realsense():
+    pipeline = rs.pipeline()
+    config = rs.config()
+    config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+    config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
+    profile = pipeline.start(config)
 
-# 深度→カラー整列器
-align_to = rs.stream.color
-align = rs.align(align_to)
-# ===================================
+    # カラーセンサに各種パラメータ設定
+    try:
+        color_sensor = get_color_sensor(profile.get_device())
+        if color_sensor is not None:
+            if color_sensor.supports(rs.option.enable_auto_exposure):
+                color_sensor.set_option(rs.option.enable_auto_exposure, 0)
+            if color_sensor.supports(rs.option.enable_auto_white_balance):
+                color_sensor.set_option(rs.option.enable_auto_white_balance, 0)
+
+            if color_sensor.supports(rs.option.exposure):
+                color_sensor.set_option(rs.option.exposure, RS_EXPOSURE)
+            if color_sensor.supports(rs.option.gain):
+                color_sensor.set_option(rs.option.gain, RS_GAIN)
+            if color_sensor.supports(rs.option.white_balance):
+                color_sensor.set_option(rs.option.white_balance, RS_WHITEBALANCE)
+            if color_sensor.supports(rs.option.brightness):
+                color_sensor.set_option(rs.option.brightness, RS_BRIGHTNESS)
+            if color_sensor.supports(rs.option.contrast):
+                color_sensor.set_option(rs.option.contrast, RS_CONTRAST)
+            if color_sensor.supports(rs.option.sharpness):
+                color_sensor.set_option(rs.option.sharpness, RS_SHARPNESS)
+            if color_sensor.supports(rs.option.saturation):
+                color_sensor.set_option(rs.option.saturation, RS_SATURATION)
+            if color_sensor.supports(rs.option.gamma):
+                color_sensor.set_option(rs.option.gamma, RS_GAMMA)
+        else:
+            print("[WARN] カラーセンサが見つかりませんでした。パラメータ設定をスキップします。")
+    except Exception as e:
+        print("[WARN] RealSense パラメータ設定中に例外:", e)
+
+    align = rs.align(rs.stream.color)
+    return pipeline, align
+
 
 def get_led_mask(hsv, color):
     if color == 'blue':
@@ -110,11 +121,9 @@ def get_led_mask(hsv, color):
         return cv2.bitwise_or(m1, m2)
     return None
 
+
 def find_boxes(mask):
-    """
-    マスク→輪郭→(x,y,w,h) のリストを返す。
-    ※ この段階で「最小高さ・最小幅・最小面積」を満たさない候補を除外する。
-    """
+    """マスク→輪郭→(x,y,w,h) のリストを返す（最小高さ・最小幅・最小面積で足切り）。"""
     kernel = np.ones((KERNEL_SZ, KERNEL_SZ), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.dilate(mask, kernel, iterations=1)
@@ -123,15 +132,13 @@ def find_boxes(mask):
     boxes = []
     for c in contours:
         x, y, w, h = cv2.boundingRect(c)
-
-        # ★ 最小サイズ & 面積フィルタ（色ごとの抽出段階で実施）
         if (h < MIN_BOX_H) or (w < MIN_BOX_W):
             continue
         if (w * h) < AREA_MIN:
             continue
-
         boxes.append((x, y, w, h))
     return boxes
+
 
 def horiz_overlap_ratio(b1, b2):
     """2 矩形の水平方向重なり幅 / min(w1,w2)"""
@@ -142,16 +149,9 @@ def horiz_overlap_ratio(b1, b2):
     overlap = max(0, right - left)
     return 0.0 if min(w1, w2) == 0 else overlap / float(min(w1, w2))
 
+
 def pair_boxes_same_color(boxes):
-    """
-    同色ボックス群から上下ペアを作る。
-    条件:
-      - 下は上より下側
-      - 幅差 <= WIDTH_TOL * max(w_top, w_bottom)
-      - 水平オーバーラップ >= MIN_H_OVERLAP
-      - 垂直間隔 >= MIN_V_GAP
-    マッチングは「上ボックスから見て最も近い下ボックス」を優先（1対1対応）。
-    """
+    """同色ボックス群から上下ペアを作る（1対1, 最も近い下ボックスを選択）。"""
     boxes_sorted = sorted(boxes, key=lambda b: b[1])  # y昇順
     paired = []
     used_bottom = set()
@@ -184,6 +184,7 @@ def pair_boxes_same_color(boxes):
 
     return paired
 
+
 def bbox_union(top, bottom):
     """上下 2 矩形を含む最小外接矩形 (x_min, y_min, w, h) と中心 (cx, cy)"""
     x1, y1, w1, h1 = top
@@ -198,80 +199,171 @@ def bbox_union(top, bottom):
     cy = y_min + h / 2.0
     return (x_min, y_min, w, h), (cx, cy)
 
-# ========= メインループ =========
-try:
 
-    # セッションはwithで自動クローズ
-    with zenoh.open(zenoh.Config()) as session:
-        # フィールドごとにPublisherを1回だけ宣言して使い回す
-        publishers = {
-            key: session.declare_publisher(f"{KEY_PREFIX}/{key}")
-            for key in RobotCommand.model_fields.keys()
-        }  
+def declare_publishers(session):
+    """
+    RobotCommand のフィールド名を使って publisher を生成。
+    取得できない場合は既定フィールドでフォールバック。
+    """
+    try:
+        from domain.message import RobotCommand  # 必要時のみ import
+        keys = list(RobotCommand.model_fields.keys())
+    except Exception as e:
+        print(f"[WARN] RobotCommand の取得に失敗: {e}")
+        print("[INFO] 既定フィールド ['target_x','target_y','depth','dummy'] を使用します。")
+        keys = ["target_x", "target_y", "depth", "dummy"]
 
-        while True:
-            frames = pipeline.wait_for_frames()
-            aligned = align.process(frames)
+    pubs = {key: session.declare_publisher(f"{KEY_PREFIX}/{key}") for key in keys}
+    return pubs, keys
 
-            color_frame = aligned.get_color_frame()
-            depth_frame = aligned.get_depth_frame()
-            if not color_frame or not depth_frame:
-                continue
 
-            color_image = np.asanyarray(color_frame.get_data())
-            hsv = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
+def main():
+    args = parse_args()
+    do_publish = args.publish
 
-            # 色ごとに矩形候補を抽出（★ここで MIN_BOX_H / MIN_BOX_W を適用）
-            boxes_by_color = {}
-            for color in ['blue', 'red']:
-                mask = get_led_mask(hsv, color)
-                boxes_by_color[color] = find_boxes(mask)
+    # RealSense 準備
+    pipeline, align = setup_realsense()
 
-            target_x, target_y = 640, 360  # 初期値（画面中心）
-            depth = 0
-            dummy = 0
-            target_to_center_distance = 9999
+    # 画像処理のみ（非公開モード）のときは Zenoh を import すらしない
+    if not do_publish:
+        print("[MODE] 非公開モード（Zenoh未使用）で起動しました。")
+        try:
+            while True:
+                frames = pipeline.wait_for_frames()
+                aligned = align.process(frames)
 
-            # 同色の上下ペアを検出・描画
-            for color in ['blue', 'red']:
-                pairs = pair_boxes_same_color(boxes_by_color[color])
-                for (top, bottom) in pairs:
-                    box_col = (255, 0, 0) if color == 'blue' else (0, 0, 255)
-                    # 個別の箱（参照用に枠のみ）
-                    for (x, y, w, h) in (top, bottom):
-                        cv2.rectangle(color_image, (x, y), (x + w, y + h), box_col, 1)
+                color_frame = aligned.get_color_frame()
+                depth_frame = aligned.get_depth_frame()
+                if not color_frame or not depth_frame:
+                    continue
 
-                    # ペアの最小外接矩形＋中心
-                    (ux, uy, uw, uh), (cx, cy) = bbox_union(top, bottom)
-                    cv2.rectangle(color_image, (ux, uy), (ux + uw, uy + uh), (0, 255, 0), 2)
-                    cv2.circle(color_image, (int(cx), int(cy)), 3, (0, 255, 0), -1)
-                    cv2.putText(
-                        color_image,
-                        f"{color} cx,cy=({int(cx)},{int(cy)})",
-                        (ux, max(0, uy - 6)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA
-                    )
+                color_image = np.asanyarray(color_frame.get_data())
+                hsv = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
 
-                    if abs(cx-640) < abs(target_to_center_distance):
-                        target_to_center_distance = cx-640
-                        target_x = int(cx)
-                        target_y = int(cy)
+                boxes_by_color = {}
+                for color in ['blue', 'red']:
+                    mask = get_led_mask(hsv, color)
+                    boxes_by_color[color] = find_boxes(mask)
 
-            cv2.imshow('Panel (paired by same-color top & bottom)', color_image)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+                target_x, target_y = 640, 360  # 初期値（画面中心）
+                target_to_center_distance = 9999
 
-            for key, pub in publishers.items():
-                if key == "target_x":
-                    value = target_x
-                elif key == "target_y":
-                    value = target_y
-                elif key == "depth":
-                    value = depth
-                elif key == "dummy":
-                    value = dummy                
-                pub.put(str(value))  # 文字列で送信
+                for color in ['blue', 'red']:
+                    pairs = pair_boxes_same_color(boxes_by_color[color])
+                    for (top, bottom) in pairs:
+                        box_col = (255, 0, 0) if color == 'blue' else (0, 0, 255)
+                        for (x, y, w, h) in (top, bottom):
+                            cv2.rectangle(color_image, (x, y), (x + w, y + h), box_col, 1)
 
-finally:
-    pipeline.stop()
-    cv2.destroyAllWindows()
+                        (ux, uy, uw, uh), (cx, cy) = bbox_union(top, bottom)
+                        cv2.rectangle(color_image, (ux, uy), (ux + uw, uy + uh), (0, 255, 0), 2)
+                        cv2.circle(color_image, (int(cx), int(cy)), 3, (0, 255, 0), -1)
+                        cv2.putText(
+                            color_image,
+                            f"{color} cx,cy=({int(cx)},{int(cy)})",
+                            (ux, max(0, uy - 6)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA
+                        )
+
+                        if abs(cx - 640) < abs(target_to_center_distance):
+                            target_to_center_distance = cx - 640
+                            target_x = int(cx)
+                            target_y = int(cy)
+
+                cv2.imshow('Panel (paired by same-color top & bottom)', color_image)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+
+        finally:
+            pipeline.stop()
+            cv2.destroyAllWindows()
+        return
+
+    # ここから公開モード（Zenohあり）
+    print("[MODE] 公開モード（Zenohにpublish）で起動しました。")
+
+    # 必要時のみ Zenoh を import
+    try:
+        import zenoh
+    except ImportError:
+        print("[ERROR] zenoh が見つかりません。`pip install zenoh` などで導入してください。")
+        pipeline.stop()
+        cv2.destroyAllWindows()
+        sys.exit(1)
+
+    try:
+        with zenoh.open(zenoh.Config()) as session:
+            publishers, pub_keys = declare_publishers(session)
+            print(f"[INFO] Publish keys: {', '.join(pub_keys)}")
+
+            while True:
+                frames = pipeline.wait_for_frames()
+                aligned = align.process(frames)
+
+                color_frame = aligned.get_color_frame()
+                depth_frame = aligned.get_depth_frame()
+                if not color_frame or not depth_frame:
+                    continue
+
+                color_image = np.asanyarray(color_frame.get_data())
+                hsv = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
+
+                boxes_by_color = {}
+                for color in ['blue', 'red']:
+                    mask = get_led_mask(hsv, color)
+                    boxes_by_color[color] = find_boxes(mask)
+
+                target_x, target_y = 640, 360
+                depth = 0.0
+                dummy = 0
+                target_to_center_distance = 9999
+
+                for color in ['blue', 'red']:
+                    pairs = pair_boxes_same_color(boxes_by_color[color])
+                    for (top, bottom) in pairs:
+                        box_col = (255, 0, 0) if color == 'blue' else (0, 0, 255)
+                        for (x, y, w, h) in (top, bottom):
+                            cv2.rectangle(color_image, (x, y), (x + w, y + h), box_col, 1)
+
+                        (ux, uy, uw, uh), (cx, cy) = bbox_union(top, bottom)
+                        cv2.rectangle(color_image, (ux, uy), (ux + uw, uy + uh), (0, 255, 0), 2)
+                        cv2.circle(color_image, (int(cx), int(cy)), 3, (0, 255, 0), -1)
+                        cv2.putText(
+                            color_image,
+                            f"{color} cx,cy=({int(cx)},{int(cy)})",
+                            (ux, max(0, uy - 6)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA
+                        )
+
+                        if abs(cx - 640) < abs(target_to_center_distance):
+                            target_to_center_distance = cx - 640
+                            target_x = int(cx)
+                            target_y = int(cy)
+                            depth = depth_frame.get_distance(target_x, target_y)
+
+                cv2.imshow('Panel (paired by same-color top & bottom)', color_image)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+
+                # Publish（RobotCommand がなければ既定キー）
+                for key, pub in publishers.items():
+                    if key == "target_x":
+                        value = target_x
+                    elif key == "target_y":
+                        value = target_y
+                    elif key == "depth":
+                        value = depth
+                    elif key == "dummy":
+                        value = dummy
+                    else:
+                        # 予期せぬフィールドはスキップ
+                        continue
+                    pub.put(str(value))  # 文字列で送信
+
+    finally:
+        pipeline.stop()
+        cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
