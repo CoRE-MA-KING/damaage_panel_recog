@@ -25,6 +25,34 @@ pyrealsense2が入らない場合は、[ソースビルド＆インストール]
 いまの設定は基本固定で、試合時のパネルの輝度に合わせて`RS_EXPOSURE `によってシャッタースピードのみを変更すると良いと思っている。
 今は赤色と青色のパネルを同時に検知しているが、試合時にはどちらか片方のみでいいはず。それを分けるとより誤検知は減ると思われる。
 
+デフォルト設定
+```python
+RS_EXPOSURE     = 10
+RS_GAIN         = 0
+RS_WHITEBALANCE = 4600
+RS_BRIGHTNESS   = 0
+RS_CONTRAST     = 50
+RS_SHARPNESS    = 50
+RS_SATURATION   = 50
+RS_GAMMA        = 100
+
+AREA_MIN       = 100
+KERNEL_SZ      = 3
+WIDTH_TOL      = 0.25
+MIN_H_OVERLAP  = 0.50
+MIN_V_GAP      = 2
+MIN_BOX_H      = 10
+MIN_BOX_W      = 50
+
+HSV_INIT = {
+    "blue":  {"H_low":105, "H_high":125, "S_low":180, "S_high":255, "V_low":120, "V_high":255},
+    "red1":  {"H_low":  0, "H_high": 10},
+    "red2":  {"H_low":160, "H_high":179},
+    "redSV": {"S_low":180, "S_high":255, "V_low":120, "V_high":255},
+}
+```
+
+
 オプションによって`roboapp`向けに認識結果をpublishしたり、パラメータ設定モードで起動するかが変わる。パラメータは同時に複数指定可能だヨ。
 
 ```bash
@@ -37,6 +65,7 @@ python3 panel_recog_camera.py
 ```bash
 -p / --publish : roboapp向けに照準対象をpublishするモード
 -s / --setting : カメラパラメータと認識対象LEDの閾値HSVを設定を動的に行うモード
+-t / --tracking : トラッキングを行うモード（照準対象の決定にも関わる）
 なし : 単体でのプログラム実行（カメラ映像+認識結果を画面に表示するだけ）
 ```
 

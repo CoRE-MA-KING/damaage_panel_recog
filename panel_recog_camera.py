@@ -3,14 +3,25 @@
 
 import argparse
 import sys
+import time
+import collections
 import numpy as np
 import cv2
 import pyrealsense2 as rs
 
+# --- 追加（motpyはオプション依存） ---
+_MOTPY_AVAILABLE = False
+try:
+    from motpy import Detection, MultiObjectTracker
+    _MOTPY_AVAILABLE = True
+except Exception:
+    # --track を使わなければそのまま動く
+    pass
+
 KEY_PREFIX = "robot/command"
 MAIN_WIN = 'Panel (paired by same-color top & bottom)'
 
-RS_EXPOSURE     = 10
+RS_EXPOSURE     = 800
 RS_GAIN         = 0
 RS_WHITEBALANCE = 4600
 RS_BRIGHTNESS   = 0
@@ -27,17 +38,23 @@ MIN_V_GAP      = 2
 MIN_BOX_H      = 10
 MIN_BOX_W      = 50
 
+# --- 追跡表示用 ---
+TRACK_MIN_STEPS = 2       # 何フレーム以上生存で可視化するか
+TRACK_HISTORY   = 20      # 軌跡の履歴長
+TRACK_COLOR     = (0, 255, 255)  # 黄
+
 HSV_INIT = {
     "blue":  {"H_low":105, "H_high":125, "S_low":180, "S_high":255, "V_low":120, "V_high":255},
     "red1":  {"H_low":  0, "H_high": 10},
     "red2":  {"H_low":160, "H_high":179},
-    "redSV": {"S_low":180, "S_high":255, "V_low":120, "V_high":255},
+    "redSV": {"S_low":80, "S_high":255, "V_low":120, "V_high":255},
 }
 
 def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("-p", "--publish", action="store_true", help="Zenohにpublishする")
     ap.add_argument("-s", "--setting", action="store_true", help="トラックバーでカメラ/HSVを調整する（同じウインドウに表示）")
+    ap.add_argument("-t", "--track", action="store_true", help="motpyを用いて多目標トラッキングを有効化する")
     return ap.parse_args()
 
 def get_color_sensor(dev: rs.device):
@@ -153,10 +170,24 @@ def declare_publishers(session):
     pubs = {k: session.declare_publisher(f"{KEY_PREFIX}/{k}") for k in keys}
     return pubs, keys
 
+# --- 追加: motpyユーティリティ ---
+def _xywh_to_xyxy(box_xywh):
+    x, y, w, h = box_xywh
+    return np.array([x, y, x + w, y + h], dtype=float)
+
+def _xyxy_to_center(box_xyxy):
+    x1, y1, x2, y2 = box_xyxy
+    return ( (x1 + x2) / 2.0, (y1 + y2) / 2.0 )
+
 def main():
     args = parse_args()
     do_publish = args.publish
     use_gui = args.setting
+    use_track = args.track
+
+    if use_track and not _MOTPY_AVAILABLE:
+        print("[ERROR] --track が指定されましたが motpy が見つかりません。`pip install motpy` を実行するか、--track を外してください。")
+        # 追跡無しで継続（検出・描画は動作）
 
     hsv_cfg = {
         "blue":  dict(HSV_INIT["blue"]),
@@ -170,10 +201,10 @@ def main():
     pipeline, align, profile = setup_realsense()
     color_sensor = get_color_sensor(profile.get_device())
 
-    # メイン映像ウインドウを先に作成（ここにトラックバーを付ける）
+    # メイン映像ウインドウ
     cv2.namedWindow(MAIN_WIN, cv2.WINDOW_NORMAL)
 
-    # 設定GUI：トラックバーはメインウインドウにアタッチ（別ウインドウは作らない）
+    # 設定GUI
     if use_gui and color_sensor is not None:
         def try_set(opt, val):
             if color_sensor.supports(opt):
@@ -236,6 +267,22 @@ def main():
         publishers, pub_keys = declare_publishers(session)
         print(f"[INFO] Publish keys: {', '.join(pub_keys)}")
 
+    # --- motpy トラッカー初期化 ---
+    tracker = None
+    track_history = {}  # id -> deque([(cx,cy), ...])
+    last_t = time.time()
+    if use_track and _MOTPY_AVAILABLE:
+        # 位置: 2次元（x,y）、サイズ: 2次元（w,h）を推定
+        model_spec = {
+            'order_pos': 1,   # 1次（定速度でも良いが計測は十分にある想定で0/1どちらでも可）
+            'dim_pos': 2,
+            'order_size': 0,
+            'dim_size': 2,
+            'q_var_pos': 5000.0,  # プロセスノイズ（調整ポイント）
+            'r_var_pos': 0.1,     # 観測ノイズ（調整ポイント）
+        }
+        tracker = MultiObjectTracker(dt=1/30.0, model_spec=model_spec)
+
     try:
         while True:
             frames = pipeline.wait_for_frames()
@@ -245,6 +292,13 @@ def main():
             if not color_frame or not depth_frame:
                 continue
 
+            # dt 更新（自動露出OFFならほぼ一定だが、可視化のため動的に追従）
+            now = time.time()
+            dt = max(1e-3, now - last_t)
+            last_t = now
+            if tracker is not None:
+                tracker.dt = dt
+
             color_image = np.asanyarray(color_frame.get_data())
             hsv = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
 
@@ -253,26 +307,101 @@ def main():
                 mask = get_led_mask(hsv, c, hsv_cfg)
                 boxes_by_color[c] = find_boxes(mask)
 
+            # 検出（従来）
             target_x, target_y = 640, 360
             depth_val = 0.0
             dummy = 0
             target_to_center_distance = 9999
 
+            union_boxes_xywh = []  # 追跡器に渡すために集約
+            show_raw = not (use_track and _MOTPY_AVAILABLE)  # --track時は生検出の描画を抑止
+            # ...
             for c in ['blue', 'red']:
                 pairs = pair_boxes_same_color(boxes_by_color[c])
                 for (top, bottom) in pairs:
-                    box_col = (255, 0, 0) if c == 'blue' else (0, 0, 255)
-                    for (x, y, w, h) in (top, bottom):
-                        cv2.rectangle(color_image, (x, y), (x + w, y + h), box_col, 1)
                     (ux, uy, uw, uh), (cx, cy) = bbox_union(top, bottom)
-                    cv2.rectangle(color_image, (ux, uy), (ux + uw, uy + uh), (0, 255, 0), 2)
-                    cv2.circle(color_image, (int(cx), int(cy)), 3, (0, 255, 0), -1)
-                    cv2.putText(color_image, f"{c} cx,cy=({int(cx)},{int(cy)})",
-                                (ux, max(0, uy - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1, cv2.LINE_AA)
-                    if abs(cx - 640) < abs(target_to_center_distance):
-                        target_to_center_distance = cx - 640
-                        target_x, target_y = int(cx), int(cy)
+                    union_boxes_xywh.append((ux, uy, uw, uh))
+
+                    # trackの時の描画はフラグで分岐
+                    if show_raw:
+                        box_col = (255, 0, 0) if c == 'blue' else (0, 0, 255)
+                        for (x, y, w, h) in (top, bottom):
+                            cv2.rectangle(color_image, (x, y), (x + w, y + h), box_col, 1)
+                        cv2.rectangle(color_image, (ux, uy), (ux + uw, uy + uh), (0, 255, 0), 2)
+                        cv2.circle(color_image, (int(cx), int(cy)), 3, (0, 255, 0), -1)
+                        cv2.putText(color_image, f"{c} cx,cy=({int(cx)},{int(cy)})",
+                                    (ux, max(0, uy - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                                    (0,255,0), 1, cv2.LINE_AA)
+
+                    # ターゲット選定は、trackが無効/不使用のときだけ検出から行う
+                    if not (use_track and _MOTPY_AVAILABLE):
+                        if abs(cx - 640) < abs(target_to_center_distance):
+                            target_to_center_distance = cx - 640
+                            target_x, target_y = int(cx), int(cy)
+                            # depth_val = depth_frame.get_distance(target_x, target_y)
+
+
+            # --- 追跡フェーズ ---
+            chosen_from_tracks = False
+            if use_track and _MOTPY_AVAILABLE and tracker is not None:
+                detections = []
+                for (ux, uy, uw, uh) in union_boxes_xywh:
+                    xyxy = _xywh_to_xyxy((ux, uy, uw, uh))
+                    # スコアは面積の簡易正規化（適当でOK。無くても動くがmatchingに影響）
+                    score = min(1.0, (uw * uh) / (1280*720/8.0) + 0.1)
+                    detections.append(Detection(box=xyxy, score=float(score), class_id=0))
+
+                tracker.step(detections=detections)
+                tracks = tracker.active_tracks(min_steps_alive=TRACK_MIN_STEPS)
+
+                # 可視化＆軌跡
+                for t in tracks:
+                    x1, y1, x2, y2 = t.box
+                    x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+                    cx, cy = _xyxy_to_center(t.box)
+
+                    # 軌跡の更新
+                    if t.id not in track_history:
+                        track_history[t.id] = collections.deque(maxlen=TRACK_HISTORY)
+                    track_history[t.id].append((int(cx), int(cy)))
+
+                    # トラック枠（黄）
+                    cv2.rectangle(color_image, (x1, y1), (x2, y2), TRACK_COLOR, 2)
+                    cv2.putText(color_image, f"ID {t.id}", (x1, max(0, y1 - 8)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, TRACK_COLOR, 2, cv2.LINE_AA)
+
+                    # 軌跡（折れ線）
+                    pts = list(track_history[t.id])
+                    for k in range(1, len(pts)):
+                        cv2.line(color_image, pts[k-1], pts[k], TRACK_COLOR, 2)
+
+                # ターゲット：中心に最も近いトラック
+                if len(tracks) > 0:
+                    center_x = color_image.shape[1] // 2
+                    best = None; best_dx = None
+                    for t in tracks:
+                        cx, cy = _xyxy_to_center(t.box)
+                        dx = abs(cx - center_x)
+                        if (best_dx is None) or (dx < best_dx):
+                            best = (int(cx), int(cy)); best_dx = dx
+                    if best is not None:
+                        target_x, target_y = best
+                        chosen_from_tracks = True
                         # depth_val = depth_frame.get_distance(target_x, target_y)
+
+            # ターゲット表示（トラック由来ならシアン、検出由来なら白）
+            tgt_col = (255, 255, 0) if chosen_from_tracks else (255, 255, 255)
+            cv2.drawMarker(color_image, (int(target_x), int(target_y)), tgt_col,
+                           markerType=cv2.MARKER_CROSS, markerSize=16, thickness=2)
+            cv2.putText(color_image, f"target=({target_x},{target_y})",
+                        (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.7, tgt_col, 2, cv2.LINE_AA)
+
+            # 情報テキスト
+            if use_track:
+                mode = "TRACK=ON (motpy)" if _MOTPY_AVAILABLE else "TRACK=ON (motpy missing!)"
+            else:
+                mode = "TRACK=OFF"
+            cv2.putText(color_image, mode, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200,200,200), 1, cv2.LINE_AA)
 
             cv2.imshow(MAIN_WIN, color_image)
 
