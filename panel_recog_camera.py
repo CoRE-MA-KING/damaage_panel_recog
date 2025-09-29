@@ -21,7 +21,7 @@ except Exception:
 KEY_PREFIX = "robot/command"
 MAIN_WIN = 'Panel (paired by same-color top & bottom)'
 
-RS_EXPOSURE     = 800
+RS_EXPOSURE     = 10
 RS_GAIN         = 0
 RS_WHITEBALANCE = 4600
 RS_BRIGHTNESS   = 0
@@ -44,10 +44,10 @@ TRACK_HISTORY   = 20      # 軌跡の履歴長
 TRACK_COLOR     = (0, 255, 255)  # 黄
 
 HSV_INIT = {
-    "blue":  {"H_low":105, "H_high":125, "S_low":180, "S_high":255, "V_low":120, "V_high":255},
-    "red1":  {"H_low":  0, "H_high": 10},
-    "red2":  {"H_low":160, "H_high":179},
-    "redSV": {"S_low":80, "S_high":255, "V_low":120, "V_high":255},
+    "blue":  {"H_low":1105, "H_high":135, "S_low":180, "S_high":255, "V_low":120, "V_high":255},
+    "red1":  {"H_low":  0, "H_high": 15},
+    "red2":  {"H_low":165, "H_high":179},
+    "redSV": {"S_low":180, "S_high":255, "V_low":120, "V_high":255},
 }
 
 def parse_args():
