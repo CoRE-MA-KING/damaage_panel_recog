@@ -21,6 +21,8 @@ except Exception:
 KEY_PREFIX = "robot/command"
 MAIN_WIN = 'Panel (paired by same-color top & bottom)'
 
+
+# --- RealSense カメラ設定パラメータ -------------------------
 RS_EXPOSURE     = 10
 RS_GAIN         = 0
 RS_WHITEBALANCE = 4600
@@ -30,6 +32,7 @@ RS_SHARPNESS    = 50
 RS_SATURATION   = 50
 RS_GAMMA        = 100
 
+# --- LED検出パラメータ -------------------------
 KERNEL_SZ      = 3
 WIDTH_TOL      = 0.6  # 幅の類似性の許容誤差（大きい矩形基準）大きくすると条件緩和
 MIN_H_OVERLAP  = 0.05  # 位置の許容誤差（小さい矩形基準）小さくすると条件緩和
@@ -37,10 +40,25 @@ MIN_V_GAP      = 1
 MIN_BOX_H      = 2
 MIN_BOX_W      = 8
 
+# --- motpy（トラッキング）調整パラメータ -------------------------
+# 運動モデル
+MOT_ORDER_POS   = 2      # 1: 定速度, 2: 定加速度
+MOT_DIM_POS     = 2
+MOT_ORDER_SIZE  = 0
+MOT_DIM_SIZE    = 2
+
+# ノイズ（px^2 目安）
+MOT_Q_VAR_POS   = 5000.0 # プロセスノイズ（大きいほど急変追従しやすい）
+MOT_R_VAR_POS   = 0.1    # 観測ノイズ（大きいほど観測を信用しない→滑らか/遅め）
+
+# マッチングとライフサイクル（Noneならライブラリ既定値を使用）
+MOT_MIN_IOU     = None   # 予測と観測のIoU閾値（0.0-1.0）（小さくすると分裂を減らせるが、取り違えしやすい）
+MOT_MAX_STALE   = 4   # 未マッチ残骸を捨るフレーム数（整数）（小さくすると分裂を減らせるが、すぐにロストする）
+
 # --- 追跡表示用 ---
 TRACK_MIN_STEPS = 2       # 何フレーム以上生存で可視化するか
 TRACK_HISTORY   = 20      # 軌跡の履歴長
-TRACK_COLOR     = (0, 255, 255)  # 黄qqq
+TRACK_COLOR     = (0, 255, 255)  # 黄
 
 HSV_INIT = {
     "blue":  {"H_low":105, "H_high":135, "S_low":180, "S_high":255, "V_low":120, "V_high":255},
@@ -281,18 +299,25 @@ def main():
     tracker = None
     track_history = {}  # id -> deque([(cx,cy), ...])
     last_t = time.time()
+    
     if use_track and _MOTPY_AVAILABLE:
         # 位置: 2次元（x,y）、サイズ: 2次元（w,h）を推定
         model_spec = {
-            'order_pos': 1,   # 1次（定速度でも良いが計測は十分にある想定で0/1どちらでも可）
-            'dim_pos': 2,
-            'order_size': 0,
-            'dim_size': 2,
-            'q_var_pos': 5000.0,  # プロセスノイズ（調整ポイント）
-            'r_var_pos': 0.1,     # 観測ノイズ（調整ポイント）
+            'order_pos':  MOT_ORDER_POS,
+            'dim_pos':    MOT_DIM_POS,
+            'order_size': MOT_ORDER_SIZE,
+            'dim_size':   MOT_DIM_SIZE,
+            'q_var_pos':  MOT_Q_VAR_POS,  # プロセスノイズ
+            'r_var_pos':  MOT_R_VAR_POS,  # 観測ノイズ
         }
         tracker = MultiObjectTracker(dt=1/30.0, model_spec=model_spec)
 
+        # ここでバージョン互換のため“あれば”上書き（Noneは無視）
+        if (MOT_MIN_IOU is not None) and hasattr(tracker, 'min_iou'):
+            tracker.min_iou = MOT_MIN_IOU
+        if (MOT_MAX_STALE is not None) and hasattr(tracker, 'max_staleness'):
+            tracker.max_staleness = MOT_MAX_STALE
+            
     try:
         while True:
             frames = pipeline.wait_for_frames()
