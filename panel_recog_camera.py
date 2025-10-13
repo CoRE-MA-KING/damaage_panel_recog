@@ -30,13 +30,12 @@ RS_SHARPNESS    = 50
 RS_SATURATION   = 50
 RS_GAMMA        = 100
 
-AREA_MIN       = 100
 KERNEL_SZ      = 3
-WIDTH_TOL      = 0.25
-MIN_H_OVERLAP  = 0.50
-MIN_V_GAP      = 2
-MIN_BOX_H      = 10
-MIN_BOX_W      = 50
+WIDTH_TOL      = 0.6  # 幅の類似性の許容誤差（大きい矩形基準）大きくすると条件緩和
+MIN_H_OVERLAP  = 0.05  # 位置の許容誤差（小さい矩形基準）小さくすると条件緩和
+MIN_V_GAP      = 1
+MIN_BOX_H      = 2
+MIN_BOX_W      = 8
 
 # --- 追跡表示用 ---
 TRACK_MIN_STEPS = 2       # 何フレーム以上生存で可視化するか
@@ -123,13 +122,14 @@ def find_boxes(mask):
     for c in contours:
         x, y, w, h = cv2.boundingRect(c)
         if (h < MIN_BOX_H) or (w < MIN_BOX_W): continue
-        if (w * h) < AREA_MIN:                 continue
         boxes.append((x, y, w, h))
     return boxes
 
 def horiz_overlap_ratio(b1, b2):
-    x1, _, w1, _ = b1; x2, _, w2, _ = b2
-    left = max(x1, x2); right = min(x1 + w1, x2 + w2)
+    x1, _, w1, _ = b1
+    x2, _, w2, _ = b2
+    left = max(x1, x2)
+    right = min(x1 + w1, x2 + w2)
     overlap = max(0, right - left)
     return 0.0 if min(w1, w2) == 0 else overlap / float(min(w1, w2))
 
@@ -138,14 +138,24 @@ def pair_boxes_same_color(boxes):
     paired = []; used_bottom = set()
     for i, top in enumerate(boxes_sorted):
         x_t, y_t, w_t, h_t = top
-        best_j = -1; best_dy = None
+        best_j = -1;
+        best_dy = None
         for j, bottom in enumerate(boxes_sorted):
+            # 1. 自分自身と既に“誰かの下側”として使われた矩形は不可
             if j == i or j in used_bottom: continue
             x_b, y_b, w_b, h_b = bottom
+
+            # 2. 上下の縦方向距離チェック（下は上の“下側”に重なっておらず閾値以上に離れているか）
             dy = (y_b) - (y_t + h_t)
             if dy < MIN_V_GAP: continue
+
+            # 3. 幅の類似性（横幅が大きい矩形に対する幅の幅差が許容範囲内）
             if abs(w_t - w_b) > WIDTH_TOL * max(w_t, w_b): continue
+
+            # 4. 位置の類似性（横幅が小さい矩形に対する幅の重なり率が閾値以上）
             if horiz_overlap_ratio(top, bottom) < MIN_H_OVERLAP: continue
+
+            # 5. 条件を満たす中で縦距離が最小の下側を選好（貪欲）
             if (best_dy is None) or (dy < best_dy):
                 best_dy = dy; best_j = j
         if best_j >= 0:
