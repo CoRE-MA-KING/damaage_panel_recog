@@ -41,10 +41,10 @@ MIN_BOX_W      = 50
 # --- 追跡表示用 ---
 TRACK_MIN_STEPS = 2       # 何フレーム以上生存で可視化するか
 TRACK_HISTORY   = 20      # 軌跡の履歴長
-TRACK_COLOR     = (0, 255, 255)  # 黄
+TRACK_COLOR     = (0, 255, 255)  # 黄qqq
 
 HSV_INIT = {
-    "blue":  {"H_low":1105, "H_high":135, "S_low":180, "S_high":255, "V_low":120, "V_high":255},
+    "blue":  {"H_low":105, "H_high":135, "S_low":180, "S_high":255, "V_low":120, "V_high":255},
     "red1":  {"H_low":  0, "H_high": 15},
     "red2":  {"H_low":165, "H_high":179},
     "redSV": {"S_low":180, "S_high":255, "V_low":120, "V_high":255},
