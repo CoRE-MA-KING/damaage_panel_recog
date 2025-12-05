@@ -65,10 +65,17 @@ HSV_INIT = {
 python3 panel_recog_camera.py
 ```
 
+試合用（zenohでpublish + 画像表示なし + トラッキングあり）
+
+```bash
+python3 panel_recog_camera.py -p -n -t
+```
+
 オプション
 
 ```bash
 -p / --publish : roboapp向けに照準対象をpublishするモード
+-n / --no-display: カメラ画像+処理結果を画面上に表示しない
 -s / --setting : カメラパラメータと認識対象LEDの閾値HSVを設定を動的に行うモード
 -t / --tracking : トラッキングを行うモード（照準対象の決定にも関わる）
 なし : 単体でのプログラム実行（カメラ映像+認識結果を画面に表示するだけ）

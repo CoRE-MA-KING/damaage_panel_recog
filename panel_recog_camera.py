@@ -68,6 +68,7 @@ HSV_INIT = {
 def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("-p", "--publish", action="store_true", help="Zenohにpublishする")
+    ap.add_argument("-n", "--no-display", action="store_true", help="映像表示を行わない")
     ap.add_argument("-s", "--setting", action="store_true", help="トラックバーでカメラ/HSVを調整する（同じウインドウに表示）")
     ap.add_argument("-t", "--track", action="store_true", help="motpyを用いて多目標トラッキングを有効化する")
     return ap.parse_args()
@@ -213,8 +214,13 @@ def _put_text_rgba(img, text, org, scale=0.6, color=(255,255,255), thickness=1):
 def main():
     args = parse_args()
     do_publish = args.publish
+    do_display = not args.no_display
     use_gui = args.setting
     use_track = args.track
+
+    # no-display が指定されていたら GUI も無効にする
+    if args.no_display:
+        use_gui = False
 
     if use_track and not _MOTPY_AVAILABLE:
         print("[ERROR] --track が指定されましたが motpy が見つかりません。`pip install motpy` を実行するか、--track を外してください。")
@@ -232,8 +238,9 @@ def main():
     pipeline, align, profile = setup_realsense()
     color_sensor = get_color_sensor(profile.get_device())
 
-    # メイン映像ウインドウ
-    cv2.namedWindow(MAIN_WIN, cv2.WINDOW_NORMAL)
+    # メイン映像ウインドウ（表示 or GUI のときだけ作る）
+    if do_display or use_gui:
+        cv2.namedWindow(MAIN_WIN, cv2.WINDOW_NORMAL)
 
     # 設定GUI
     if use_gui and color_sensor is not None:
@@ -494,7 +501,8 @@ def main():
             y_top = 30
             _put_text_rgba(color_image, fps_text, (x_right, y_top), 0.7, (255,255,255), 2)
 
-            cv2.imshow(MAIN_WIN, color_image)
+            if do_display:
+                cv2.imshow(MAIN_WIN, color_image)
 
             # Publish（必要時）
             if publishers is not None:
@@ -506,8 +514,13 @@ def main():
                     else: continue
                     pub.put(str(value))
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+            #  キー入力処理も「ウインドウがあるときだけ」
+            if do_display or use_gui:
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+            else:
+                # GUI無しモードでは少し休止
+                time.sleep(0.01)
 
     finally:
         if 'session' in locals():
