@@ -38,7 +38,7 @@ CAM_CONTRAST                 = 50      # contrast [0..95]
 CAM_SATURATION               = 128     # saturation [0..255]
 CAM_HUE                      = 0       # hue [-2000..2000]
 CAM_WHITE_BALANCE_AUTOMATIC  = 0       # white_balance_automatic [0/1]
-CAM_GAMMA                    = 100     # gamma [64..300]
+CAM_GAMMA                    = 110     # gamma [64..300]
 CAM_GAIN                     = 0       # gain [0..1023]
 CAM_POWER_LINE_FREQUENCY     = 1       # power_line_frequency: 0=Disabled,1=50Hz,2=60Hz
 CAM_WHITE_BALANCE_TEMPERATURE= 4600    # white_balance_temperature [2800..6500]
@@ -46,12 +46,12 @@ CAM_SHARPNESS                = 4       # sharpness [0..7]
 CAM_BACKLIGHT_COMPENSATION   = 36      # backlight_compensation [36..160]
 
 # --- Camera Controls ---
-CAM_AUTO_EXPOSURE            = 1       # auto_exposure: 1=Manual Mode (あなたの出力に合わせる)
+CAM_AUTO_EXPOSURE            = 1       # auto_exposure: 1=Manual Mode (出力に合わせる)
 CAM_EXPOSURE_TIME_ABSOLUTE   = 100     # exposure_time_absolute [1..10000]  ※一般に 100µs単位 → 100=10ms
 CAM_PAN_ABSOLUTE             = 0       # pan_absolute
 CAM_TILT_ABSOLUTE            = 0       # tilt_absolute
 CAM_FOCUS_AUTO_CONTINUOUS    = 0       # focus_automatic_continuous (固定したいなら0)
-CAM_FOCUS_ABSOLUTE           = 579     # focus_absolute（inactiveなら無視される）
+CAM_FOCUS_ABSOLUTE           = 0       # focus_absolute（inactiveなら無視される）
 CAM_ZOOM_ABSOLUTE            = 0       # zoom_absolute
 
 # --- LED検出パラメータ -------------------------
@@ -342,16 +342,15 @@ def main():
             return _f
 
         # 例：brightness は -64..64 なので trackbarは 0..128 で持ち、実値は v-64 にする
+        cv2.createTrackbar("ExposureAbs",MAIN_WIN, CAM_EXPOSURE_TIME_ABSOLUTE, 10000, tb_set_v4l2("exposure_time_absolute", minv=0))
+        cv2.createTrackbar("Gain",       MAIN_WIN, CAM_GAIN, 1023, tb_set_v4l2("gain", minv=0))
+        cv2.createTrackbar("WhiteBalance",    MAIN_WIN, CAM_WHITE_BALANCE_TEMPERATURE - 2800, 6500 - 2800, tb_set_v4l2("white_balance_temperature", minv=2800))
         cv2.createTrackbar("Brightness", MAIN_WIN, CAM_BRIGHTNESS - (-64), 64 - (-64), tb_set_v4l2("brightness", minv=-64))
         cv2.createTrackbar("Contrast",   MAIN_WIN, CAM_CONTRAST, 95, tb_set_v4l2("contrast", minv=0))
         cv2.createTrackbar("Saturation", MAIN_WIN, CAM_SATURATION, 255, tb_set_v4l2("saturation", minv=0))
         cv2.createTrackbar("Hue",        MAIN_WIN, CAM_HUE - (-2000), 2000 - (-2000), tb_set_v4l2("hue", minv=-2000))
         cv2.createTrackbar("Gamma",      MAIN_WIN, CAM_GAMMA - 64, 300 - 64, tb_set_v4l2("gamma", minv=64))
-        cv2.createTrackbar("Gain",       MAIN_WIN, CAM_GAIN, 1023, tb_set_v4l2("gain", minv=0))
-        cv2.createTrackbar("ExposureAbs",MAIN_WIN, CAM_EXPOSURE_TIME_ABSOLUTE, 10000, tb_set_v4l2("exposure_time_absolute", minv=0))
-        cv2.createTrackbar("WB Temp",    MAIN_WIN, CAM_WHITE_BALANCE_TEMPERATURE - 2800, 6500 - 2800, tb_set_v4l2("white_balance_temperature", minv=2800))
         cv2.createTrackbar("Sharpness",  MAIN_WIN, CAM_SHARPNESS, 7, tb_set_v4l2("sharpness", minv=0))
-        cv2.createTrackbar("Backlight",  MAIN_WIN, CAM_BACKLIGHT_COMPENSATION - 36, 160 - 36, tb_set_v4l2("backlight_compensation", minv=36))
 
         # HSV blue
         def bset(name): return lambda v: hsv_cfg["blue"].__setitem__(name, int(v))
