@@ -57,10 +57,10 @@ CAM_ZOOM_ABSOLUTE            = 0       # zoom_absolute
 # ============================================================
 # キャプチャ仕様（オプション指定はしない：固定値/変数で管理）
 # ============================================================
-CAM_FRAME_WIDTH  = 1280
-CAM_FRAME_HEIGHT = 720
-CAM_FPS          = 10
-CAM_FOURCC       = "YUYV"    # "MJPEG" ではなく FourCC は "MJPG"
+CAM_FRAME_WIDTH  = 640
+CAM_FRAME_HEIGHT = 360
+CAM_FPS          = 90
+CAM_FOURCC       = "MJPG"    # "MJPEG" ではなく FourCC は "MJPG"
 
 # --- LED検出パラメータ -------------------------
 KERNEL_SZ      = 3
