@@ -47,7 +47,7 @@ CAM_BACKLIGHT_COMPENSATION   = 36      # backlight_compensation [36..160]
 
 # --- Camera Controls ---
 CAM_AUTO_EXPOSURE            = 1       # auto_exposure: 1=Manual Mode (出力に合わせる)
-CAM_EXPOSURE_TIME_ABSOLUTE   = 100     # exposure_time_absolute [1..10000]  ※一般に 100µs単位 → 100=10ms
+CAM_EXPOSURE_TIME_ABSOLUTE   = 4     # exposure_time_absolute [1..10000]  ※一般に 100µs単位 → 100=10ms
 CAM_PAN_ABSOLUTE             = 0       # pan_absolute
 CAM_TILT_ABSOLUTE            = 0       # tilt_absolute
 CAM_FOCUS_AUTO_CONTINUOUS    = 0       # focus_automatic_continuous (固定したいなら0)
@@ -432,7 +432,7 @@ def main():
             'q_var_pos':  MOT_Q_VAR_POS,
             'r_var_pos':  MOT_R_VAR_POS,
         }
-        tracker = MultiObjectTracker(dt=1/30.0, model_spec=model_spec)
+        tracker = MultiObjectTracker(dt=1/CAM_FPS, model_spec=model_spec)
         if (MOT_MIN_IOU is not None) and hasattr(tracker, 'min_iou'):
             tracker.min_iou = MOT_MIN_IOU
         if (MOT_MAX_STALE is not None) and hasattr(tracker, 'max_staleness'):
