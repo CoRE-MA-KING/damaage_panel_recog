@@ -125,31 +125,39 @@ python3 camera_parameter_setting.py
 - **Zenoh publish（任意）**:
   - `robot/command/<field>` に `target_x`, `target_y`, `depth`, `dummy` 等を publish
 
+## 準備
+
+使用するwebカメラのパラメータ設定可能範囲を見るには以下のコマンド
+
+```
+v4l2-ctl -d {ビデオのデバイスファイル} --list-ctrls
+```
+
 ## 2. 実行方法
 
 ### 2.1 基本実行（表示あり）
 
 ```bash
-python3 your_script.py
+python3 panel_recog_normal_camera.py
 ```
 
 ### 2.2 デバイス指定（番号 or パス）
 
 ```bash
-python3 your_script.py -d 0
-python3 your_script.py -d /dev/video2
+python3 panel_recog_normal_camera.py -d 0
+python3 panel_recog_normal_camera.py -d /dev/video2
 ```
 
 ### 2.3 GUIなし（表示しない）
 
 ```bash
-python3 your_script.py -n
+python3 panel_recog_normal_camera.py -n
 ```
 
 ### 2.4 設定GUI（トラックバーで調整）
 
 ```bash
-python3 your_script.py -s
+python3 panel_recog_normal_camera.py -s
 ```
 
 - -n を付けた場合はGUIも無効化される（no-display優先）
@@ -157,7 +165,7 @@ python3 your_script.py -s
 ### 2.5 motpyトラッキング有効
 
 ```bash
-python3 your_script.py -t
+python3 panel_recog_normal_camera.py -t
 ```
 
 - motpy が無い場合は警告を出し、追跡無しで継続
@@ -165,7 +173,7 @@ python3 your_script.py -t
 ### 2.6 Zenoh publish 有効
 
 ```bash
-python3 your_script.py -p
+python3 panel_recog_normal_camera.py -p
 ```
 
 zenoh が無い場合はエラー終了
