@@ -34,7 +34,7 @@ MAIN_WIN = 'Panel (paired by same-color top & bottom)'
 
 # --- User Controls ---
 CAM_BRIGHTNESS               = 0       # brightness [-64..64]
-CAM_CONTRAST                 = 50      # contrast [0..95]
+CAM_CONTRAST                 = 50      # contrast [0..95] 0がいいかも？
 CAM_SATURATION               = 128     # saturation [0..255]
 CAM_HUE                      = 0       # hue [-2000..2000]
 CAM_WHITE_BALANCE_AUTOMATIC  = 0       # white_balance_automatic [0/1]
@@ -67,8 +67,8 @@ KERNEL_SZ      = 3
 WIDTH_TOL      = 0.6    # 幅の類似性の許容誤差（大きい矩形基準）
 MIN_H_OVERLAP  = 0.05   # 横方向オーバーラップ率（小さい矩形基準）
 MIN_V_GAP      = 1
-MIN_BOX_H      = 2
-MIN_BOX_W      = 8
+MIN_BOX_H      = 1
+MIN_BOX_W      = 4
 
 # --- motpy（トラッキング）調整パラメータ -------------------------
 MOT_ORDER_POS   = 2      # 1: 定速度, 2: 定加速度
