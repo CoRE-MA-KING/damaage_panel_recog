@@ -7,6 +7,7 @@ import time
 import collections
 import numpy as np
 import cv2
+from domain.message import DamagePanelRecognition
 import pyrealsense2 as rs
 
 # --- 追加（motpyはオプション依存） ---
@@ -177,16 +178,6 @@ def bbox_union(top, bottom):
     cx = x_min + w / 2.0; cy = y_min + h / 2.0
     return (x_min, y_min, w, h), (cx, cy)
 
-def declare_publishers(session):
-    try:
-        from domain.message import RobotCommand
-        keys = list(RobotCommand.model_fields.keys())
-    except Exception as e:
-        print(f"[WARN] RobotCommand 取得失敗: {e}")
-        keys = ["target_x", "target_y", "depth", "dummy"]
-    pubs = {k: session.declare_publisher(f"{KEY_PREFIX}/{k}") for k in keys}
-    return pubs, keys
-
 # --- motpyユーティリティ ---
 def _xywh_to_xyxy(box_xywh):
     x, y, w, h = box_xywh
@@ -294,7 +285,7 @@ def main():
         cv2.createTrackbar('R_V_high', MAIN_WIN, hsv_cfg["redSV"]["V_high"],255, rsvset("V_high"))
 
     # Zenoh（必要時のみ）
-    publishers = None
+    publisher = None
     if do_publish:
         try:
             import zenoh
@@ -302,8 +293,7 @@ def main():
             print("[ERROR] zenoh が見つかりません。`pip install zenoh` を実施してください。")
             pipeline.stop(); cv2.destroyAllWindows(); sys.exit(1)
         session = zenoh.open(zenoh.Config())
-        publishers, pub_keys = declare_publishers(session)
-        print(f"[INFO] Publish keys: {', '.join(pub_keys)}")
+        publisher = session.declare_publisher("damagepanel")
 
     # --- motpy トラッカー初期化 ---
     tracker = None
@@ -505,14 +495,10 @@ def main():
                 cv2.imshow(MAIN_WIN, color_image)
 
             # Publish（必要時）
-            if publishers is not None:
-                for key, pub in publishers.items():
-                    if   key == "target_x": value = target_x
-                    elif key == "target_y": value = target_y
-                    elif key == "depth":    value = depth_val
-                    elif key == "dummy":    value = 0
-                    else: continue
-                    pub.put(str(value))
+            if publisher:
+                publisher.put(DamagePanelRecognition(target_x=target_x,
+                                                target_y=target_y,
+                                                target_distance=int(depth_val)).model_dump_json())
 
             #  キー入力処理も「ウインドウがあるときだけ」
             if do_display or use_gui:
