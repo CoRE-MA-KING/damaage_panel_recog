@@ -19,11 +19,13 @@ except Exception:
     # --track を使わなければそのまま動く
     pass
 
-KEY_PREFIX = "robot/command"
+# prefixはroboapp側のconfig.tomlに合わせる
+KEY_PREFIX = ""
+PUBLISH_KEY = "damagepanel"
 MAIN_WIN = 'Panel (paired by same-color top & bottom)'
 
 # --- RealSense カメラ設定パラメータ -------------------------
-RS_EXPOSURE     = 10
+RS_EXPOSURE     = 2
 RS_GAIN         = 0
 RS_WHITEBALANCE = 4600
 RS_BRIGHTNESS   = 0
@@ -293,7 +295,9 @@ def main():
             print("[ERROR] zenoh が見つかりません。`pip install zenoh` を実施してください。")
             pipeline.stop(); cv2.destroyAllWindows(); sys.exit(1)
         session = zenoh.open(zenoh.Config())
-        publisher = session.declare_publisher("damagepanel")
+        key_prefix = KEY_PREFIX.strip("/")
+        key_expr = f"{key_prefix}/{PUBLISH_KEY}" if key_prefix else PUBLISH_KEY
+        publisher = session.declare_publisher(key_expr)
 
     # --- motpy トラッカー初期化 ---
     tracker = None
