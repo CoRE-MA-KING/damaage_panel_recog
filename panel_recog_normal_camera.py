@@ -34,32 +34,34 @@ MAIN_WIN = 'Panel (paired by same-color top & bottom)'
 
 # --- User Controls ---
 CAM_BRIGHTNESS               = 0       # brightness [-64..64]
-CAM_CONTRAST                 = 50      # contrast [0..95] 0がいいかも？
-CAM_SATURATION               = 128     # saturation [0..255]
-CAM_HUE                      = 0       # hue [-2000..2000]
+CAM_CONTRAST                 = 32      # contrast [0..64] 0がいいかも？
+CAM_SATURATION               = 90     # saturation [0..128]
+CAM_HUE                      = 0       # hue [-40..40]
 CAM_WHITE_BALANCE_AUTOMATIC  = 0       # white_balance_automatic [0/1]
-CAM_GAMMA                    = 110     # gamma [64..300]
-CAM_GAIN                     = 0       # gain [0..1023]
+CAM_GAMMA                    = 100     # gamma [72..500]
+CAM_GAIN                     = 0       # gain [0..100]
 CAM_POWER_LINE_FREQUENCY     = 1       # power_line_frequency: 0=Disabled,1=50Hz,2=60Hz
 CAM_WHITE_BALANCE_TEMPERATURE= 4600    # white_balance_temperature [2800..6500]
-CAM_SHARPNESS                = 4       # sharpness [0..7]
-CAM_BACKLIGHT_COMPENSATION   = 36      # backlight_compensation [36..160]
+CAM_SHARPNESS                = 3       # sharpness [0..6]
+CAM_BACKLIGHT_COMPENSATION   = 0      # backlight_compensation [0,1,2]
 
 # --- Camera Controls ---
-CAM_AUTO_EXPOSURE            = 1       # auto_exposure: 1=Manual Mode (出力に合わせる)
-CAM_EXPOSURE_TIME_ABSOLUTE   = 4     # exposure_time_absolute [1..10000]  ※一般に 100µs単位 → 100=10ms
-CAM_PAN_ABSOLUTE             = 0       # pan_absolute
-CAM_TILT_ABSOLUTE            = 0       # tilt_absolute
-CAM_FOCUS_AUTO_CONTINUOUS    = 0       # focus_automatic_continuous (固定したいなら0)
-CAM_FOCUS_ABSOLUTE           = 0       # focus_absolute（inactiveなら無視される）
-CAM_ZOOM_ABSOLUTE            = 0       # zoom_absolute
+CAM_AUTO_EXPOSURE            = 1       # auto_exposure: 1=Manual Mode 3=Aperture Priority Mode
+CAM_EXPOSURE_TIME_ABSOLUTE   = 4     # exposure_time_absolute [1..5000]  ※一般に 100µs単位 → 100=10ms
+
+# 現在のカメラには存在しない
+# CAM_PAN_ABSOLUTE             = 0       # pan_absolute
+# CAM_TILT_ABSOLUTE            = 0       # tilt_absolute
+# CAM_FOCUS_AUTO_CONTINUOUS    = 0       # focus_automatic_continuous (固定したいなら0)
+# CAM_FOCUS_ABSOLUTE           = 0       # focus_absolute（inactiveなら無視される）
+# CAM_ZOOM_ABSOLUTE            = 0       # zoom_absolute
 
 # ============================================================
 # キャプチャ仕様（オプション指定はしない：固定値/変数で管理）
 # ============================================================
-CAM_FRAME_WIDTH  = 640
-CAM_FRAME_HEIGHT = 360
-CAM_FPS          = 90
+CAM_FRAME_WIDTH  = 800
+CAM_FRAME_HEIGHT = 600
+CAM_FPS          = 120
 CAM_FOURCC       = "MJPG"    # "MJPEG" ではなく FourCC は "MJPG"
 
 # --- LED検出パラメータ -------------------------
@@ -149,7 +151,7 @@ def apply_camera_init(dev_path: str, cap: cv2.VideoCapture):
     v4l2_set(dev_path, "white_balance_automatic", CAM_WHITE_BALANCE_AUTOMATIC)
 
     # フォーカス: まず AF を止めてから focus_absolute
-    v4l2_set(dev_path, "focus_automatic_continuous", CAM_FOCUS_AUTO_CONTINUOUS)
+    # v4l2_set(dev_path, "focus_automatic_continuous", CAM_FOCUS_AUTO_CONTINUOUS)
 
     # 主要項目
     v4l2_set(dev_path, "exposure_time_absolute", CAM_EXPOSURE_TIME_ABSOLUTE)
@@ -165,12 +167,12 @@ def apply_camera_init(dev_path: str, cap: cv2.VideoCapture):
     v4l2_set(dev_path, "backlight_compensation", CAM_BACKLIGHT_COMPENSATION)
 
     # 位置系（必要なら）
-    v4l2_set(dev_path, "pan_absolute", CAM_PAN_ABSOLUTE)
-    v4l2_set(dev_path, "tilt_absolute", CAM_TILT_ABSOLUTE)
-    v4l2_set(dev_path, "zoom_absolute", CAM_ZOOM_ABSOLUTE)
+    # v4l2_set(dev_path, "pan_absolute", CAM_PAN_ABSOLUTE)
+    # v4l2_set(dev_path, "tilt_absolute", CAM_TILT_ABSOLUTE)
+    # v4l2_set(dev_path, "zoom_absolute", CAM_ZOOM_ABSOLUTE)
 
     # focus_absolute は inactive の可能性があるので最後に（失敗しても無視）
-    v4l2_set(dev_path, "focus_absolute", CAM_FOCUS_ABSOLUTE)
+    # v4l2_set(dev_path, "focus_absolute", CAM_FOCUS_ABSOLUTE)
 
     # フォールバック（v4l2 が使えない/効かない時の最低限）
     # ※OpenCVプロパティは機種によって意味/反映が不安定です
