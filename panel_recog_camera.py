@@ -8,6 +8,7 @@ import collections
 import numpy as np
 import cv2
 from domain.message import DamagePanelRecognition
+from domain.config import get_config_path
 import pyrealsense2 as rs
 
 # --- 追加（motpyはオプション依存） ---
@@ -294,7 +295,9 @@ def main():
         except ImportError:
             print("[ERROR] zenoh が見つかりません。`pip install zenoh` を実施してください。")
             pipeline.stop(); cv2.destroyAllWindows(); sys.exit(1)
-        session = zenoh.open(zenoh.Config())
+        session = zenoh.open(
+            zenoh.Config.from_file(get_config_path() / "zenoh.json5")
+        )
         key_prefix = KEY_PREFIX.strip("/")
         key_expr = f"{key_prefix}/{PUBLISH_KEY}" if key_prefix else PUBLISH_KEY
         publisher = session.declare_publisher(key_expr)

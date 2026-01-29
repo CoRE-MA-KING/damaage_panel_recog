@@ -12,6 +12,8 @@ import re
 import numpy as np
 import cv2
 
+from domain.config import get_config_path
+
 # --- 追加（motpyはオプション依存） ---
 _MOTPY_AVAILABLE = False
 try:
@@ -409,7 +411,9 @@ def main():
         except ImportError:
             print("[ERROR] zenoh が見つかりません。`pip install zenoh` を実施してください。")
             cap.release(); cv2.destroyAllWindows(); sys.exit(1)
-        session = zenoh.open(zenoh.Config())
+        session = zenoh.open(
+            zenoh.Config.from_file(get_config_path() / "zenoh.json5")
+        )
         publishers, pub_keys = declare_publishers(session)
         print(f"[INFO] Publish keys: {', '.join(pub_keys)}")
 
