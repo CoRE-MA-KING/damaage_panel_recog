@@ -21,7 +21,6 @@ except Exception:
     pass
 
 # prefixはroboapp側のconfig.tomlに合わせる
-KEY_PREFIX = ""
 PUBLISH_KEY = "damagepanel"
 MAIN_WIN = 'Panel (paired by same-color top & bottom)'
 
@@ -298,9 +297,7 @@ def main():
         session = zenoh.open(
             zenoh.Config.from_file(get_config_path() / "zenoh.json5")
         )
-        key_prefix = KEY_PREFIX.strip("/")
-        key_expr = f"{key_prefix}/{PUBLISH_KEY}" if key_prefix else PUBLISH_KEY
-        publisher = session.declare_publisher(key_expr)
+        publisher = session.declare_publisher(PUBLISH_KEY)
 
     # --- motpy トラッカー初期化 ---
     tracker = None
