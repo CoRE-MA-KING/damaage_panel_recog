@@ -71,6 +71,21 @@ pip install zenoh
 python3 damage_panel_recog_and_tracking.py -p
 ```
 
+### (計測用) ターゲット座標ログをCSVに保存
+
+「映像中に映る物体は1つ以下」という前提で、**フレーム間の移動量（dx,dy）**や**速度(px/s)** の当たりをつける用途向けです。
+動画録画よりも負荷が軽く、90fps付近のまま統計が取りやすいです。
+
+```bash
+python3 damage_panel_recog_and_tracking.py -l
+```
+
+出力先はデフォルトで `logs/motion_log_YYYYmmdd_HHMMSS.csv` です。明示する場合:
+
+```bash
+python3 damage_panel_recog_and_tracking.py -l --log-path logs/run1.csv
+```
+
 ---
 
 ## 設定ファイル
@@ -78,7 +93,6 @@ python3 damage_panel_recog_and_tracking.py -p
 デフォルトは `config/default.yaml` を読みます。
 
 - YAMLを使う場合: `pip install pyyaml`
-- JSONで使う場合: `--config config/default.json`
 
 例:
 

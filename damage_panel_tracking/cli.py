@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from .config import load_config, build_effective_config
+from .utils.motion_logger import MotionLogger, default_motion_log_path
 from .camera.capture import setup_camera
 from .detection.hsv import get_led_mask, find_boxes
 from .detection.pairing import pair_boxes_same_color, build_pair_meta
@@ -81,6 +82,11 @@ DEFAULTS: Dict[str, Any] = {
         "window_name": "Panel (paired by same-color top & bottom)",
         "fps_ema_alpha": 0.2,
     },
+    "logging": {
+        "enabled": False,
+        "path": None,
+        "flush_every": 60,
+    },
 }
 
 
@@ -91,6 +97,9 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("-s", "--setting", action="store_true", help="トラックバーでカメラ/HSVを調整する")
     ap.add_argument("-t", "--track", action="store_true", help="多目標トラッキングを有効化（backendはconfigで選択）")
     ap.add_argument("-d", "--device", default=None, help="キャプチャデバイスのパスまたは番号（例: 0, /dev/video0）")
+    ap.add_argument("-l", "--log", action="store_true", help="(計測用) ターゲット座標の時系列をCSVへ記録する")
+    ap.add_argument("--log-path", default=None, help="(計測用) ログCSVの出力先（省略時は logs/motion_log_YYYYmmdd_HHMMSS.csv）")
+    ap.add_argument("--log-flush-every", default=None, type=int, help="(計測用) 何フレームごとにflushするか（デフォルト60）")
     ap.add_argument("--config", default="config/default.yaml", help="設定ファイル（YAML/JSON）")
     return ap.parse_args()
 
@@ -144,6 +153,22 @@ def _select_target_from_pairs(pairs: List[PairMeta], frame_w: int, frame_h: int)
     return best
 
 
+def _select_target_pair(pairs: List[PairMeta], frame_w: int, frame_h: int) -> Tuple[Tuple[int, int], PairMeta | None]:
+    """Like _select_target_from_pairs, but also returns the selected PairMeta."""
+    cx0 = frame_w / 2.0
+    best_xy = (int(frame_w / 2), int(frame_h / 2))
+    best_abs = float("inf")
+    best_p: PairMeta | None = None
+    for p in pairs:
+        cx, cy = xyxy_center(p.union_xyxy)
+        dx = abs(cx - cx0)
+        if dx < best_abs:
+            best_abs = dx
+            best_xy = (int(cx), int(cy))
+            best_p = p
+    return best_xy, best_p
+
+
 def _select_target_from_tracks(tracks: List[Track], frame_w: int, frame_h: int) -> Tuple[int, int]:
     cx0 = frame_w / 2.0
     best = (int(frame_w / 2), int(frame_h / 2))
@@ -155,6 +180,23 @@ def _select_target_from_tracks(tracks: List[Track], frame_w: int, frame_h: int) 
             best_abs = dx
             best = (int(cx), int(cy))
     return best
+
+
+def _select_target_track(tracks: List[Track], frame_w: int, frame_h: int) -> Tuple[Tuple[int, int], Track | None]:
+    """Like _select_target_from_tracks, but also returns the selected Track."""
+    cx0 = frame_w / 2.0
+    best_xy = (int(frame_w / 2), int(frame_h / 2))
+    best_abs = float("inf")
+    best_t: Track | None = None
+    for t in tracks:
+        cx, cy = xyxy_center(t.box_xyxy)
+        dx = abs(cx - cx0)
+        if dx < best_abs:
+            best_abs = dx
+            best_xy = (int(cx), int(cy))
+            best_t = t
+    return best_xy, best_t
+
 
 
 def _build_tracker(track_cfg: Dict[str, Any], fps: float) -> Any:
@@ -191,6 +233,11 @@ def main() -> int:
         cfg["camera"]["device"] = args.device
     cfg["publish"]["enabled"] = bool(args.publish or cfg["publish"].get("enabled", False))
     cfg["tracking"]["enabled"] = bool(args.track or cfg["tracking"].get("enabled", False))
+    cfg["logging"]["enabled"] = bool(args.log or cfg.get("logging", {}).get("enabled", False))
+    if args.log_path is not None:
+        cfg["logging"]["path"] = str(args.log_path)
+    if args.log_flush_every is not None:
+        cfg["logging"]["flush_every"] = int(args.log_flush_every)
 
     do_display = not bool(args.no_display)
     use_gui = bool(args.setting) and do_display
@@ -209,6 +256,13 @@ def main() -> int:
     if cfg["publish"]["enabled"]:
         publisher = ZenohPublisher(ZenohConfig(key_prefix=str(cfg["publish"]["key_prefix"]), publish_key=str(cfg["publish"]["publish_key"])))
 
+    motion_logger: MotionLogger | None = None
+    if cfg.get("logging", {}).get("enabled", False):
+        log_path = cfg["logging"].get("path") or default_motion_log_path()
+        flush_every = int(cfg["logging"].get("flush_every", 60))
+        motion_logger = MotionLogger(str(log_path), flush_every=flush_every)
+        print(f"[INFO] motion log enabled: {motion_logger.path}")
+
     tracker = None
     viz = TrackVizState(history_len=int(cfg["tracking"]["history_len"]))
     if cfg["tracking"]["enabled"]:
@@ -222,11 +276,15 @@ def main() -> int:
     fps = 0.0
     alpha = float(cfg["ui"].get("fps_ema_alpha", 0.2))
 
+    frame_idx = 0
+
     try:
         while True:
             ret, frame = cap.read()
             if not ret:
                 continue
+
+            frame_idx += 1
 
             now = time.time()
             dt = max(1e-6, now - last_t)
@@ -237,16 +295,43 @@ def main() -> int:
             pairs = _pairs_from_frame(frame, cfg["detection"])
             H, W = frame.shape[0], frame.shape[1]
 
-            target = _select_target_from_pairs(pairs, frame_w=W, frame_h=H)
+            target, sel_pair = _select_target_pair(pairs, frame_w=W, frame_h=H)
             chosen_from_tracks = False
             tracks: List[Track] = []
+            sel_track: Track | None = None
 
             if cfg["tracking"]["enabled"] and tracker is not None:
                 dets = _detections_from_pairs(pairs, frame.shape)
                 tracks = tracker.step(dets, dt=dt)
                 if len(tracks) > 0:
-                    target = _select_target_from_tracks(tracks, frame_w=W, frame_h=H)
+                    target, sel_track = _select_target_track(tracks, frame_w=W, frame_h=H)
                     chosen_from_tracks = True
+
+            if motion_logger is not None:
+                src = "none"
+                xy = None
+                wh = None
+                if chosen_from_tracks and sel_track is not None:
+                    src = "track"
+                    xy = target
+                    x1, y1, x2, y2 = sel_track.box_xyxy
+                    wh = (int(x2 - x1), int(y2 - y1))
+                elif (not chosen_from_tracks) and sel_pair is not None:
+                    src = "det"
+                    xy = target
+                    _, _, uw, uh = sel_pair.union_xywh
+                    wh = (int(uw), int(uh))
+
+                motion_logger.log(
+                    frame_idx=frame_idx,
+                    t_sec=now,
+                    dt_sec=dt,
+                    n_pairs=len(pairs),
+                    n_tracks=len(tracks),
+                    source=src,
+                    xy=xy,
+                    wh=wh,
+                )
 
             if do_display:
                 if not cfg["tracking"]["enabled"] or tracker is None:
@@ -278,6 +363,12 @@ def main() -> int:
                 )
 
     finally:
+        try:
+            if motion_logger is not None:
+                motion_logger.close()
+                print(f"[INFO] motion log saved: {motion_logger.path} ({motion_logger.summary_text()})")
+        except Exception as e:
+            print(f"[WARN] motion logger close failed: {e}")
         try:
             if publisher is not None:
                 publisher.close()
