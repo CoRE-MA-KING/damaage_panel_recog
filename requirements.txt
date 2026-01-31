@@ -1,0 +1,12 @@
+numpy
+opencv-python
+pydantic
+
+# optional (only if you use YAML config):
+pyyaml
+
+# optional (only if you enable --track with backend=motpy):
+motpy
+
+# optional (only if you enable --publish):
+zenoh
