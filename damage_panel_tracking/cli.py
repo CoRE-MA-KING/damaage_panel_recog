@@ -85,7 +85,6 @@ DEFAULTS: Dict[str, Any] = {
     },
     "publish": {
         "enabled": False,
-        "key_prefix": "",
         "publish_key": "damagepanel",
     },
     "ui": {
@@ -278,7 +277,7 @@ def main() -> int:
 
     publisher = None
     if cfg["publish"]["enabled"]:
-        publisher = ZenohPublisher(ZenohConfig(key_prefix=str(cfg["publish"]["key_prefix"]), publish_key=str(cfg["publish"]["publish_key"])))
+        publisher = ZenohPublisher(ZenohConfig(publish_key=str(cfg["publish"]["publish_key"])))
 
     motion_logger: MotionLogger | None = None
     if cfg.get("logging", {}).get("enabled", False):

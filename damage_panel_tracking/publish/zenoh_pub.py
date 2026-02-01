@@ -7,7 +7,6 @@ import os
 
 @dataclass
 class ZenohConfig:
-    key_prefix: str = ""
     publish_key: str = "damagepanel"
 
 
@@ -27,6 +26,7 @@ class ZenohPublisher:
                 / "zenoh.json5"
             )
         )
+        self._pub = self._session.declare_publisher(cfg.publish_key)
 
     def put(self, payload: str) -> None:
         self._pub.put(payload)
