@@ -16,6 +16,7 @@ from .detection.types import PairMeta, xyxy_center
 from .tracking.base import Detection, Track
 from .tracking.noop_tracker import NoopTracker
 from .tracking.motpy_tracker import MotpyTracker, MotpyConfig
+from .tracking.distance_tracker import DistanceTracker, DistanceConfig
 from .ui.draw import TrackVizState, draw_detection_pair, draw_tracks, draw_target, draw_fps, draw_mode
 from .ui.gui import create_setting_gui
 from .publish.zenoh_pub import ZenohPublisher, ZenohConfig
@@ -58,7 +59,7 @@ DEFAULTS: Dict[str, Any] = {
     },
     "tracking": {
         "enabled": False,
-        "backend": "motpy",  # motpy | noop (future: sort)
+        "backend": "motpy",  # motpy | distance | noop (future: sort)
         "min_steps_alive": 2,
         "history_len": 20,
         "color_bgr": [0, 255, 255],
@@ -71,6 +72,15 @@ DEFAULTS: Dict[str, Any] = {
             "r_var_pos": 0.1,
             "min_iou": None,
             "max_staleness": 4,
+        },
+        "distance": {
+            "gate_px": 80.0,
+            "normalize": "diag",
+            "size_weight": 0.15,
+            "use_prediction": True,
+            "vel_alpha": 0.6,
+            "max_speed_px_s": 8000.0,
+            "max_age": 4,
         },
     },
     "publish": {
@@ -218,6 +228,20 @@ def _build_tracker(track_cfg: Dict[str, Any], fps: float) -> Any:
             min_steps_alive=int(track_cfg.get("min_steps_alive", 2)),
         )
         return MotpyTracker(cfg, dt=1.0 / float(fps))
+
+    if backend == "distance":
+        dist = track_cfg.get("distance", {})
+        cfg = DistanceConfig(
+            gate_px=float(dist.get("gate_px", 80.0)),
+            normalize=str(dist.get("normalize", "diag")),
+            size_weight=float(dist.get("size_weight", 0.15)),
+            use_prediction=bool(dist.get("use_prediction", True)),
+            vel_alpha=float(dist.get("vel_alpha", 0.6)),
+            max_speed_px_s=float(dist.get("max_speed_px_s", 8000.0)),
+            max_age=int(dist.get("max_age", track_cfg.get("max_staleness", 4) if isinstance(track_cfg.get("max_staleness", 4), int) else 4)),
+            min_steps_alive=int(track_cfg.get("min_steps_alive", 2)),
+        )
+        return DistanceTracker(cfg)
 
     raise ValueError(f"Unknown tracking backend: {backend}")
 

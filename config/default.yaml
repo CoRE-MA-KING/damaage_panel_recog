@@ -1,4 +1,9 @@
-# Default config (YAML). If you don't want PyYAML, use config/default.json instead.
+# Default config (YAML).
+# NOTE:
+# - tracking.backend により使用するトラッキング実装が変わります。
+# - tracking.distance は backend: distance のときだけ参照されます（motpy/noopでは無視されます）。
+# - tracking.motpy は backend: motpy のときだけ参照されます（distance/noopでは無視されます）。
+
 camera:
   device: /dev/video4
   capture:
@@ -51,10 +56,54 @@ detection:
 
 tracking:
   enabled: true
-  backend: motpy     # motpy | noop (future: sort)
+
+  # Select tracking backend:
+  # - motpy    : motpy(SORT系) / IoUベースの割当
+  # - distance : 自作 distance ベース（中心距離 + サイズ差）割当
+  # - noop     : トラッキング無効（検出結果のみ扱う）
+  backend: distance
+
   min_steps_alive: 2
   history_len: 20
   color_bgr: [0, 255, 255]
+
+  # --------------------------------------------------------------------------
+  # distance backend settings (ONLY used when backend: distance)
+  # --------------------------------------------------------------------------
+  distance:
+    # 同一物体とみなす最大移動量（ピクセル）
+    # 目安: 切り返しで 50px 程度でも分裂するなら、80pxなどに増やして調整
+    gate_px: 80.0
+
+    # 距離を正規化する手法
+    # - diag     : bbox の対角長で割る（サイズ依存を緩和）
+    # - sqrt_area: sqrt(w*h) で割る（サイズ依存を緩和）
+    # - none     : 正規化しない（pxの絶対距離で評価）
+    normalize: diag
+
+    # bboxサイズ差のペナルティ重み（0で無視、上げるとサイズ一致を優先）
+    # 外観情報がない代わりに w/h の変化で誤対応を抑える用途
+    size_weight: 0.15
+
+    # 予測（簡易定速度）を使うか
+    # ONだと、前フレーム速度から予測した中心位置も候補に使う
+    use_prediction: true
+
+    # 速度更新の平滑化係数（0..1）
+    # 1に近いほど最新の速度を強く反映（応答が鋭いがノイズにも敏感）
+    vel_alpha: 0.6
+
+    # 速度の上限（px/s）
+    # 異常値で速度が暴れるのを防ぐ
+    max_speed_px_s: 8000.0
+
+    # 検出が欠落してもトラックを残すフレーム数（>=0）
+    # 例: 90fps で 4 → 約 0.044s だけ保持
+    max_age: 4
+
+  # --------------------------------------------------------------------------
+  # motpy settings (ONLY used when backend: motpy)
+  # --------------------------------------------------------------------------
   motpy:
     order_pos: 2
     dim_pos: 2
