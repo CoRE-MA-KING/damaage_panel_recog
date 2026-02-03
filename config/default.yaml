@@ -98,8 +98,8 @@ tracking:
     max_speed_px_s: 8000.0
 
     # 検出が欠落してもトラックを残すフレーム数（>=0）
-    # 例: 90fps で 4 → 約 0.044s だけ保持
-    max_age: 4
+    # 例: 90fps で 45 → 約 0.5s だけ保持
+    max_age: 90
 
   # --------------------------------------------------------------------------
   # motpy settings (ONLY used when backend: motpy)
