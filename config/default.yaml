@@ -7,8 +7,8 @@
 camera:
   device: /dev/video4
   capture:
-    width: 800
-    height: 600
+    width: 1280
+    height: 720
     fps: 90
     fourcc: MJPG
   init_controls:
