@@ -116,7 +116,6 @@ tracking:
 
 publish:
   enabled: false
-  key_prefix: ""
   publish_key: damagepanel
 
 ui:

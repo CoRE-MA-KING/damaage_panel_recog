@@ -9,4 +9,4 @@ pyyaml
 motpy
 
 # optional (only if you enable --publish):
-zenoh
+eclipse-zenoh==1.6.2
