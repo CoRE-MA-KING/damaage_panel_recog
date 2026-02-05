@@ -1,0 +1,4 @@
+[damaage_panel_recog]
+working_dir = "."
+executable = ".venv/bin/python"
+args = ["damage_panel_recog_and_tracking.py"]
