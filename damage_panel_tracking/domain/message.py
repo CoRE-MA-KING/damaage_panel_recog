@@ -1,9 +1,13 @@
 from pydantic import BaseModel
 
 
+class Target(BaseModel):
+    x: int = 640
+    y: int = 360
+    distance: int = 0
+
+
 class DamagePanelRecognition(BaseModel):
     """ロボットに送信するコマンド"""
 
-    target_x: int = 640
-    target_y: int = 360
-    target_distance: int = 0
+    target: Target
