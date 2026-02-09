@@ -8,36 +8,10 @@ import cv2
 from .v4l2ctl import dev_to_path, v4l2_set
 
 
-def _prefer_v4l2_backend(device: Any) -> bool:
-    if isinstance(device, int):
-        return True
-    if isinstance(device, str) and device.startswith("/dev/video"):
-        return True
-    return False
-
-
-def _open_capture(device: Any) -> cv2.VideoCapture:
-    """Prefer V4L2 for Linux camera devices, then fall back to default backend."""
-    if _prefer_v4l2_backend(device):
-        cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
-        if cap.isOpened():
-            return cap
-        cap.release()
-    cap = cv2.VideoCapture(device)
-    if cap.isOpened():
-        return cap
-    raise RuntimeError(f"Failed to open camera: {device}")
-
-
-def _fourcc_to_str(v: float) -> str:
-    iv = int(v)
-    if iv <= 0:
-        return "N/A"
-    return "".join(chr((iv >> (8 * i)) & 0xFF) for i in range(4))
-
-
 def setup_camera(device: Any, capture_cfg: Dict[str, Any], init_ctrls: Dict[str, Any]) -> Tuple[cv2.VideoCapture, str]:
-    cap = _open_capture(device)
+    cap = cv2.VideoCapture(device)
+    if not cap.isOpened():
+        raise RuntimeError(f"Failed to open camera: {device}")
 
     fourcc = str(capture_cfg.get("fourcc", "MJPG"))
     width = int(capture_cfg.get("width", 800))
@@ -54,25 +28,6 @@ def setup_camera(device: Any, capture_cfg: Dict[str, Any], init_ctrls: Dict[str,
 
     dev_path = dev_to_path(device)
     apply_camera_init(dev_path, cap, init_ctrls)
-
-    try:
-        backend = cap.getBackendName()
-    except Exception:
-        backend = "UNKNOWN"
-    actual_fourcc = _fourcc_to_str(cap.get(cv2.CAP_PROP_FOURCC))
-    actual_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-    actual_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-    actual_fps = cap.get(cv2.CAP_PROP_FPS)
-    print(
-        "[INFO] camera open: "
-        f"backend={backend} requested={width}x{height}@{fps} {fourcc} "
-        f"actual={int(actual_w)}x{int(actual_h)}@{actual_fps:.1f} {actual_fourcc}"
-    )
-    if actual_fps > 0 and actual_fps < fps * 0.5:
-        print(
-            "[WARN] camera negotiated low fps. "
-            "Check backend and pixel format (e.g. MJPG vs YUYV)."
-        )
     return cap, dev_path
 
 

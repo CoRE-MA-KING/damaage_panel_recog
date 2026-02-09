@@ -1,31 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import os
 import time
-from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import cv2
 import numpy as np
-
-
-def _configure_qt_fontdir() -> None:
-    """Prevent Qt font warnings when OpenCV wheel lacks bundled fonts."""
-    fontdir = os.environ.get("QT_QPA_FONTDIR")
-    if fontdir and Path(fontdir).exists():
-        return
-    for p in (
-        Path("/usr/share/fonts/truetype/dejavu"),
-        Path("/usr/share/fonts/truetype"),
-        Path("/usr/share/fonts"),
-    ):
-        if p.exists():
-            os.environ["QT_QPA_FONTDIR"] = str(p)
-            return
-
-
-_configure_qt_fontdir()
 
 from .config import load_config, build_effective_config
 from .utils.motion_logger import MotionLogger, default_motion_log_path
