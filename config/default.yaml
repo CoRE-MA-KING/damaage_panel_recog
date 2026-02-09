@@ -115,8 +115,7 @@ tracking:
     max_staleness: 4
 
 publish:
-  enabled: false
-  key_prefix: ""
+  enabled: true
   publish_key: damagepanel
 
 ui:

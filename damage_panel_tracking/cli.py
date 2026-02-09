@@ -20,7 +20,7 @@ from .tracking.distance_tracker import DistanceTracker, DistanceConfig
 from .ui.draw import TrackVizState, draw_detection_pair, draw_tracks, draw_target, draw_fps, draw_mode
 from .ui.gui import create_setting_gui
 from .publish.zenoh_pub import ZenohPublisher, ZenohConfig
-from .domain.message import DamagePanelRecognition
+from .domain.message import DamagePanelRecognition, Target
 
 
 DEFAULTS: Dict[str, Any] = {
@@ -85,7 +85,6 @@ DEFAULTS: Dict[str, Any] = {
     },
     "publish": {
         "enabled": False,
-        "key_prefix": "",
         "publish_key": "damagepanel",
     },
     "ui": {
@@ -278,7 +277,7 @@ def main() -> int:
 
     publisher = None
     if cfg["publish"]["enabled"]:
-        publisher = ZenohPublisher(ZenohConfig(key_prefix=str(cfg["publish"]["key_prefix"]), publish_key=str(cfg["publish"]["publish_key"])))
+        publisher = ZenohPublisher(ZenohConfig(publish_key=str(cfg["publish"]["publish_key"])))
 
     motion_logger: MotionLogger | None = None
     if cfg.get("logging", {}).get("enabled", False):
@@ -380,9 +379,11 @@ def main() -> int:
                 tx, ty = target
                 publisher.put(
                     DamagePanelRecognition(
-                        target_x=int(tx),
-                        target_y=int(ty),
-                        target_distance=0,
+                        target=Target(
+                            x=int(tx),
+                            y=int(ty),
+                            distance=0,
+                        )
                     ).model_dump_json()
                 )
 
