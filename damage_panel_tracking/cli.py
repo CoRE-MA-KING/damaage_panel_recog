@@ -20,7 +20,10 @@ from .tracking.distance_tracker import DistanceTracker, DistanceConfig
 from .ui.draw import TrackVizState, draw_detection_pair, draw_tracks, draw_target, draw_fps, draw_mode
 from .ui.gui import create_setting_gui
 from .publish.zenoh_pub import ZenohPublisher, ZenohConfig
-from .domain.message import DamagePanelRecognition, Target
+from .domain.proto.roboapp.damagepanel_target_pb2 import (
+    DamagePanelTargetMessage,
+    Target,
+)
 
 
 DEFAULTS: Dict[str, Any] = {
@@ -377,15 +380,8 @@ def main() -> int:
 
             if publisher is not None:
                 tx, ty = target
-                publisher.put(
-                    DamagePanelRecognition(
-                        target=Target(
-                            x=int(tx),
-                            y=int(ty),
-                            distance=0,
-                        )
-                    ).model_dump_json()
-                )
+                t = Target(x=tx, y=ty, distance=0)
+                publisher.put(DamagePanelTargetMessage(target=t).SerializeToString())
 
     finally:
         try:
