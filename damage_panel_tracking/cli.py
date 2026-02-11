@@ -136,7 +136,7 @@ def main() -> int:
             else:
                 time.sleep(0.01)
 
-            publish_target(publisher, frame_result.target)
+            publish_target(publisher, frame_result)
 
     finally:
         close_motion_logger(motion_logger)
