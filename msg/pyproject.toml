@@ -1,0 +1,16 @@
+[project]
+name = "msg"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "motty", email = "motty.mio2@gmail.com" }]
+dependencies = [
+  "protobuf>=6.33.5",
+  "protovalidate>=1.1.1",
+  "types-protobuf>=6.32.1.20251210",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.13,<0.10.0"]
+build-backend = "uv_build"

@@ -1,19 +1,13 @@
 [tools]
+buf = "latest"
 protoc = "latest"
 uv = "0.9"
 
 [tasks.generate_proto]
 description = "Generate Python code from Protobuf files"
-run = """
-protoc \
-  --python_out=damage_panel_tracking/domain/proto \
-  --pyi_out=damage_panel_tracking/domain/proto \
-  --proto_path=utils/proto \
-  $(find utils/proto -name "*.proto")
-touch damage_panel_tracking/__init__.py damage_panel_tracking/domain/__init__.py damage_panel_tracking/domain/proto/__init__.py
-"""
+run = "buf generate"
 sources = ["utils/proto/**/*.proto"]
-outputs = ["damage_panel_tracking/domain/proto/**/*.py*"]
+outputs = ["msg/src/roboapp/*.py", "msg/src/roboapp/*.pyi"]
 
 [tasks.deps]
 alias = "build"
@@ -25,3 +19,8 @@ sources = [
   "uv.lock",
 ]
 outputs = { auto = true }
+
+[tasks.start]
+depends = ["deps"]
+description = "Start the damage panel recognition CLI"
+run = "uv run python3 damage_panel_recog_and_tracking.py"
