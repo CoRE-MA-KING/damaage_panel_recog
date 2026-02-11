@@ -7,8 +7,12 @@ from typing import Any, Dict, List, Tuple
 import cv2
 import numpy as np
 
-from .config import load_config, build_effective_config
-from .utils.motion_logger import MotionLogger, default_motion_log_path
+from msg import (
+    DamagePanelColorMessage,
+    DamagePanelTargetMessage,
+    Target,
+)
+
 from .camera.capture import setup_camera
 from .detection.hsv import get_led_mask, find_boxes
 from .detection.pairing import pair_boxes_same_color, build_pair_meta
@@ -20,10 +24,6 @@ from .tracking.distance_tracker import DistanceTracker, DistanceConfig
 from .ui.draw import TrackVizState, draw_detection_pair, draw_tracks, draw_target, draw_fps, draw_mode
 from .ui.gui import create_setting_gui
 from .publish.zenoh_pub import ZenohPublisher, ZenohConfig
-from .domain.proto.roboapp.damagepanel_target_pb2 import (
-    DamagePanelTargetMessage,
-    Target,
-)
 
 
 DEFAULTS: Dict[str, Any] = {
@@ -280,7 +280,16 @@ def main() -> int:
 
     publisher = None
     if cfg["publish"]["enabled"]:
-        publisher = ZenohPublisher(ZenohConfig(publish_key=str(cfg["publish"]["publish_key"])))
+        publisher = ZenohPublisher(
+            ZenohConfig(publish_key=str(cfg["publish"]["publish_key"]))
+        )
+        publisher._session.declare_subscriber(
+            "damagepanel/color",
+            lambda data: print(
+                "color is: ",
+                DamagePanelColorMessage.FromString(data.payload.to_bytes()),
+            ),
+        )
 
     motion_logger: MotionLogger | None = None
     if cfg.get("logging", {}).get("enabled", False):
