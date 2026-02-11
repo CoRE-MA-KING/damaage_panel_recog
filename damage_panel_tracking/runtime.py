@@ -95,17 +95,38 @@ def render_frame(
     return bool(cv2.waitKey(1) & 0xFF == ord("q"))
 
 
-def publish_target(publisher: ZenohPublisher | None, target_xy: Tuple[int, int]) -> None:
+def _build_publish_target(result: FrameResult) -> Target | None:
+    if result.chosen_from_tracks and result.selected_track is not None:
+        tx, ty = result.target
+        x1, y1, x2, y2 = result.selected_track.box_xyxy
+        return Target(
+            x=int(tx),
+            y=int(ty),
+            distance=0,
+            width=max(0, int(x2 - x1)),
+            height=max(0, int(y2 - y1)),
+        )
+
+    if result.selected_pair is not None:
+        tx, ty = result.target
+        _, _, uw, uh = result.selected_pair.union_xywh
+        return Target(
+            x=int(tx),
+            y=int(ty),
+            distance=0,
+            width=int(uw),
+            height=int(uh),
+        )
+
+    return None
+
+
+def publish_target(publisher: ZenohPublisher | None, result: FrameResult) -> None:
     if publisher is None:
         return
-    tx, ty = target_xy
     publisher.put(
         DamagePanelRecognition(
-            target=Target(
-                x=int(tx),
-                y=int(ty),
-                distance=0,
-            )
+            target=_build_publish_target(result)
         ).model_dump_json()
     )
 
