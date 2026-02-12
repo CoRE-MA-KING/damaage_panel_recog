@@ -4,7 +4,8 @@ from typing import Any, Dict, Tuple
 
 import cv2
 from protovalidate import validate
-from msg import Target, DamagePanelTargetMessage
+
+from msg import DamagePanelTargetMessage, Target
 
 from .pipeline import FrameResult
 from .publish.zenoh_pub import ZenohSession
@@ -104,12 +105,12 @@ def render_frame(
 
 
 def result_to_target(result: FrameResult) -> DamagePanelTargetMessage:
-    msg = DamagePanelTargetMessage(target=None)
-    
+    target = None
+
     if result.chosen_from_tracks and result.selected_track is not None:
         tx, ty = result.target
         x1, y1, x2, y2 = result.selected_track.box_xyxy
-        msg.target=Target(
+        target = Target(
             x=int(tx),
             y=int(ty),
             distance=0,
@@ -120,7 +121,7 @@ def result_to_target(result: FrameResult) -> DamagePanelTargetMessage:
     if result.selected_pair is not None:
         tx, ty = result.target
         _, _, uw, uh = result.selected_pair.union_xywh
-        msg.target=Target(
+        target = Target(
             x=int(tx),
             y=int(ty),
             distance=0,
@@ -128,13 +129,16 @@ def result_to_target(result: FrameResult) -> DamagePanelTargetMessage:
             height=int(uh),
         )
 
-    try:
-        validate(msg)
+    if target is not None:
+        try:
+            validate(target)
+            msg = DamagePanelTargetMessage(target=target)
+            validate(msg)
+            return msg
+        except Exception as e:
+            print(f"[WARN] target validation failed: {e}")
+    return DamagePanelTargetMessage(target=None)
 
-    except Exception as e:
-        print(f"[WARN] target validation failed: {e}")
-        return DamagePanelTargetMessage(target=None)
-    return msg
 
 def close_motion_logger(motion_logger: MotionLogger | None) -> None:
     if motion_logger is None:
