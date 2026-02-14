@@ -66,6 +66,9 @@ DEFAULTS: Dict[str, Any] = {
     "publish": {
         "enabled": False,
         "publish_key": "damagepanel/target",
+        "max_hz": 0.0,  # <= 0 means unlimited
+        "drop_if_congested": True,
+        "express": True,
     },
     "subscribe": {
         "enabled": False,
