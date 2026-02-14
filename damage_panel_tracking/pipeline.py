@@ -8,7 +8,7 @@ import numpy as np
 
 from .detection.hsv import find_boxes, get_led_mask
 from .detection.pairing import build_pair_meta, pair_boxes_same_color
-from .detection.types import PairMeta, xyxy_center
+from .detection.types import ColorName, PairMeta, xyxy_center
 from .tracking.base import Detection, MultiObjectTracker, Track
 from .tracking.distance_tracker import DistanceConfig, DistanceTracker
 from .tracking.motpy_tracker import MotpyConfig, MotpyTracker
@@ -59,6 +59,10 @@ def detections_from_pairs(pairs: List[PairMeta], frame_shape: Tuple[int, int, in
         score = min(1.0, (uw * uh) / (w * h / 8.0) + 0.1)
         detections.append(Detection(box_xyxy=p.union_xyxy, score=float(score), class_id=0))
     return detections
+
+
+def filter_pairs_by_color(pairs: List[PairMeta], target_color: ColorName) -> List[PairMeta]:
+    return [p for p in pairs if p.color == target_color]
 
 
 def select_target_pair(pairs: List[PairMeta], frame_w: int, frame_h: int) -> Tuple[Tuple[int, int], PairMeta | None]:
@@ -139,19 +143,21 @@ def process_frame(
     tracking_cfg: Dict[str, Any],
     tracker: MultiObjectTracker | None,
     dt: float,
+    target_color: ColorName,
 ) -> FrameResult:
     pairs = pairs_from_frame(frame_bgr, det_cfg)
     frame_h, frame_w = frame_bgr.shape[0], frame_bgr.shape[1]
+    target_pairs = filter_pairs_by_color(pairs, target_color)
 
-    target, selected_pair = select_target_pair(pairs, frame_w=frame_w, frame_h=frame_h)
+    target, selected_pair = select_target_pair(target_pairs, frame_w=frame_w, frame_h=frame_h)
     selected_track: Track | None = None
     tracks: List[Track] = []
     chosen_from_tracks = False
 
     if tracking_cfg["enabled"] and tracker is not None:
-        detections = detections_from_pairs(pairs, frame_bgr.shape)
+        detections = detections_from_pairs(target_pairs, frame_bgr.shape)
         tracks = tracker.step(detections, dt=dt)
-        if len(tracks) > 0:
+        if len(detections) > 0 and len(tracks) > 0:
             target, selected_track = select_target_track(tracks, frame_w=frame_w, frame_h=frame_h)
             chosen_from_tracks = True
 
