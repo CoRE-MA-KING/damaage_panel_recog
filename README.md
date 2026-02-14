@@ -69,11 +69,22 @@ pip install motpy
 python3 damage_panel_recog_and_tracking.py -t
 ```
 
-### Zenoh publish
+### Zenoh publish / subscribe
 
 ```bash
 pip install zenoh
 python3 damage_panel_recog_and_tracking.py -p
+```
+
+`publish` / `subscribe` は `config/default.yaml` で個別制御できます。
+
+- `publish.enabled: false` なら、検知は行うが publish はしません。
+- `subscribe.enabled: false` なら、`subscribe.default_target` (`blue` or `red`) をターゲット色として使います。
+- `--default-target red` のように CLI から `subscribe.default_target` を上書きできます。
+
+```bash
+python3 damage_panel_recog_and_tracking.py --subscribe
+python3 damage_panel_recog_and_tracking.py --default-target red
 ```
 
 ### (計測用) ターゲット座標ログをCSVに保存
