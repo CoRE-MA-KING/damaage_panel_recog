@@ -105,38 +105,37 @@ def render_frame(
 
 
 def result_to_target(result: FrameResult) -> DamagePanelTargetMessage:
-    target = None
+    try:
+        target = None
 
-    if result.chosen_from_tracks and result.selected_track is not None:
-        tx, ty = result.target
-        x1, y1, x2, y2 = result.selected_track.box_xyxy
-        target = Target(
-            x=int(tx),
-            y=int(ty),
-            distance=0,
-            width=max(0, int(x2 - x1)),
-            height=max(0, int(y2 - y1)),
-        )
+        if result.chosen_from_tracks and result.selected_track is not None:
+            tx, ty = result.target
+            x1, y1, x2, y2 = result.selected_track.box_xyxy
+            target = Target(
+                x=int(tx),
+                y=int(ty),
+                distance=999,  # 一時的な値
+                width=max(0, int(x2 - x1)),
+                height=max(0, int(y2 - y1)),
+            )
 
-    if result.selected_pair is not None:
-        tx, ty = result.target
-        _, _, uw, uh = result.selected_pair.union_xywh
-        target = Target(
-            x=int(tx),
-            y=int(ty),
-            distance=999,  # 一時的な値
-            width=int(uw),
-            height=int(uh),
-        )
+        if result.selected_pair is not None:
+            tx, ty = result.target
+            _, _, uw, uh = result.selected_pair.union_xywh
+            target = Target(
+                x=int(tx),
+                y=int(ty),
+                distance=999,  # 一時的な値
+                width=int(uw),
+                height=int(uh),
+            )
 
-    if target is not None:
-        try:
-            validate(target)
+        if target is not None:
             msg = DamagePanelTargetMessage(target=target)
             validate(msg)
             return msg
-        except Exception as e:
-            print(f"[WARN] target validation failed: {e}")
+    except Exception as e:
+        print(f"[WARN] target validation failed: {e}")
     return DamagePanelTargetMessage(target=None)
 
 
