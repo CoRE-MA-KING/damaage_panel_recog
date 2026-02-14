@@ -115,8 +115,13 @@ tracking:
     max_staleness: 4
 
 publish:
-  enabled: true
-  publish_key: damagepanel
+  enabled: false
+  publish_key: damagepanel/target
+
+subscribe:
+  enabled: false
+  subscribe_key: damagepanel/color
+  default_target: blue  # blue | red
 
 ui:
   window_name: "Panel (paired by same-color top & bottom)"
