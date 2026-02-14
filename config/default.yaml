@@ -116,7 +116,12 @@ tracking:
 
 publish:
   enabled: true
-  publish_key: damagepanel
+  publish_key: damagepanel/target
+
+subscribe:
+  enabled: true
+  subscribe_key: damagepanel/color
+  default_target: blue  # blue | red
 
 ui:
   window_name: "Panel (paired by same-color top & bottom)"

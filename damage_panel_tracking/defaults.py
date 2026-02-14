@@ -65,7 +65,12 @@ DEFAULTS: Dict[str, Any] = {
     },
     "publish": {
         "enabled": False,
-        "publish_key": "damagepanel",
+        "publish_key": "damagepanel/target",
+    },
+    "subscribe": {
+        "enabled": False,
+        "subscribe_key": "damagepanel/color",
+        "default_target": "blue",
     },
     "ui": {
         "window_name": "Panel (paired by same-color top & bottom)",

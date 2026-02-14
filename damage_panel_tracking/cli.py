@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import threading
 import time
 from typing import Any, Dict
 
@@ -17,6 +18,7 @@ from damage_panel_tracking.publish.zenoh_pub import ZenohSession
 from .camera.capture import setup_camera
 from .config import build_effective_config, load_config
 from .defaults import DEFAULTS
+from .detection.types import ColorName
 from .pipeline import build_tracker, normalize_device_arg, process_frame
 from .runtime import (
     close_motion_logger,
@@ -30,9 +32,40 @@ from .ui.draw import TrackVizState
 from .ui.gui import create_setting_gui
 
 
+VALID_TARGET_COLORS: tuple[ColorName, ColorName] = ("blue", "red")
+
+
+class TargetColorState:
+    def __init__(self, initial: ColorName) -> None:
+        self._color = initial
+        self._lock = threading.Lock()
+
+    def get(self) -> ColorName:
+        with self._lock:
+            return self._color
+
+    def set(self, next_color: ColorName) -> bool:
+        with self._lock:
+            if self._color == next_color:
+                return False
+            self._color = next_color
+            return True
+
+
+def _normalize_target_color(value: Any, *, source: str) -> ColorName:
+    color = str(value).strip().lower()
+    if color not in VALID_TARGET_COLORS:
+        raise ValueError(f"{source} must be one of {VALID_TARGET_COLORS}: got {value!r}")
+    if color == "blue":
+        return "blue"
+    return "red"
+
+
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("-p", "--publish", action="store_true", help="Zenohにpublishする")
+    ap.add_argument("--subscribe", action="store_true", help="Zenohからtarget colorをsubscribeする")
+    ap.add_argument("--default-target", default=None, help="subscribe無効時/受信前に使う色（blue|red）")
     ap.add_argument("-n", "--no-display", action="store_true", help="映像表示を行わない（GUIも無効）")
     ap.add_argument("-s", "--setting", action="store_true", help="トラックバーでカメラ/HSVを調整する")
     ap.add_argument("-t", "--track", action="store_true", help="多目標トラッキングを有効化（backendはconfigで選択）")
@@ -49,6 +82,7 @@ def _apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> None:
         cfg["camera"]["device"] = args.device
 
     cfg["publish"]["enabled"] = bool(args.publish or cfg["publish"].get("enabled", False))
+    cfg["subscribe"]["enabled"] = bool(args.subscribe or cfg["subscribe"].get("enabled", False))
     cfg["tracking"]["enabled"] = bool(args.track or cfg["tracking"].get("enabled", False))
     cfg["logging"]["enabled"] = bool(args.log or cfg.get("logging", {}).get("enabled", False))
 
@@ -57,14 +91,27 @@ def _apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> None:
     if args.log_flush_every is not None:
         cfg["logging"]["flush_every"] = int(args.log_flush_every)
 
+    if args.default_target is not None:
+        cfg["subscribe"]["default_target"] = str(args.default_target)
+
+    cfg["publish"]["publish_key"] = str(cfg["publish"].get("publish_key", "damagepanel/target"))
+    cfg["subscribe"]["subscribe_key"] = str(cfg["subscribe"].get("subscribe_key", "damagepanel/color"))
+    cfg["subscribe"]["default_target"] = _normalize_target_color(
+        cfg["subscribe"].get("default_target", "blue"),
+        source="subscribe.default_target",
+    )
+
 
 def main() -> int:
     args = parse_args()
 
     override = load_config(args.config) if args.config else {}
     cfg = build_effective_config(DEFAULTS, override)
-
-    _apply_cli_overrides(cfg, args)
+    try:
+        _apply_cli_overrides(cfg, args)
+    except ValueError as e:
+        print(f"[ERROR] {e}")
+        return 2
 
     do_display = not bool(args.no_display)
     use_gui = bool(args.setting) and do_display
@@ -79,32 +126,60 @@ def main() -> int:
     if use_gui:
         create_setting_gui(win_name, dev_path, cfg["detection"]["hsv"], cfg["camera"]["init_controls"])
 
-    session = ZenohSession()
+    publish_enabled = bool(cfg["publish"]["enabled"])
+    subscribe_enabled = bool(cfg["subscribe"]["enabled"])
+    publish_key = str(cfg["publish"]["publish_key"])
+    subscribe_key = str(cfg["subscribe"]["subscribe_key"])
+    target_color_state = TargetColorState(cfg["subscribe"]["default_target"])
+    if not subscribe_enabled:
+        print(f"[INFO] subscribe disabled: target color={target_color_state.get()}")
 
-    session.create_publisher("damagepanel/target")
-    session.create_subscriber("damagepanel/color", lambda data: print(
-        "color is: ",
-        DamagePanelColorMessage.FromString(data.payload.to_bytes()),
-    ))
-    
-    motion_logger = create_motion_logger(cfg.get("logging", {}))
-
+    session: ZenohSession | None = None
+    motion_logger = None
     tracker = None
     viz = TrackVizState(history_len=int(cfg["tracking"]["history_len"]))
-    if cfg["tracking"]["enabled"]:
-        try:
-            tracker = build_tracker(cfg["tracking"], fps=float(cfg["camera"]["capture"]["fps"]))
-        except Exception as e:
-            print(f"[WARN] tracking backend init failed: {e}")
-            tracker = None
-
-    last_t = time.time()
-    fps = 0.0
-    alpha = float(cfg["ui"].get("fps_ema_alpha", 0.2))
-
-    frame_idx = 0
 
     try:
+        if publish_enabled or subscribe_enabled:
+            session = ZenohSession()
+
+            if publish_enabled:
+                session.create_publisher(publish_key)
+
+            if subscribe_enabled:
+
+                def _on_color_message(data: Any) -> None:
+                    try:
+                        msg = DamagePanelColorMessage.FromString(data.payload.to_bytes())
+                        next_color = _normalize_target_color(
+                            msg.color,
+                            source="DamagePanelColorMessage.color",
+                        )
+                    except Exception as e:
+                        print(f"[WARN] failed to parse color message: {e}")
+                        return
+
+                    if target_color_state.set(next_color):
+                        print(f"[INFO] target color updated by subscribe: {next_color}")
+
+                session.create_subscriber(subscribe_key, _on_color_message)
+
+        motion_logger = create_motion_logger(cfg.get("logging", {}))
+
+        if cfg["tracking"]["enabled"]:
+            try:
+                tracker = build_tracker(cfg["tracking"], fps=float(cfg["camera"]["capture"]["fps"]))
+            except Exception as e:
+                print(f"[WARN] tracking backend init failed: {e}")
+                tracker = None
+
+        last_t = time.time()
+        fps = 0.0
+        alpha = float(cfg["ui"].get("fps_ema_alpha", 0.2))
+
+        frame_idx = 0
+        last_target_color = target_color_state.get()
+
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -118,12 +193,24 @@ def main() -> int:
             inst_fps = 1.0 / dt
             fps = alpha * inst_fps + (1.0 - alpha) * fps
 
+            target_color = target_color_state.get()
+            if target_color != last_target_color:
+                last_target_color = target_color
+                if cfg["tracking"]["enabled"]:
+                    try:
+                        tracker = build_tracker(cfg["tracking"], fps=float(cfg["camera"]["capture"]["fps"]))
+                        print(f"[INFO] tracker reset: target color switched to {target_color}")
+                    except Exception as e:
+                        print(f"[WARN] tracker reset failed: {e}")
+                        tracker = None
+
             frame_result = process_frame(
                 frame_bgr=frame,
                 det_cfg=cfg["detection"],
                 tracking_cfg=cfg["tracking"],
                 tracker=tracker,
                 dt=dt,
+                target_color=target_color,
             )
 
             log_motion_sample(
@@ -150,7 +237,8 @@ def main() -> int:
             else:
                 time.sleep(0.01)
 
-            session.put("damagepanel/target", result_to_target(frame_result))
+            if publish_enabled and session is not None:
+                session.put(publish_key, result_to_target(frame_result))
 
     finally:
         close_motion_logger(motion_logger)
