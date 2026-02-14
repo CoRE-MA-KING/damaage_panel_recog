@@ -25,7 +25,7 @@ from .runtime import (
     create_motion_logger,
     log_motion_sample,
     render_frame,
-    result_to_target,
+    result_to_publish_payload,
 )
 from .ui.draw import TrackVizState
 from .ui.gui import create_setting_gui
@@ -151,43 +151,36 @@ def main() -> int:
     viz = TrackVizState(history_len=int(cfg["tracking"]["history_len"]))
 
     try:
-        if publish_enabled or subscribe_enabled:
+        if publish_enabled:
+            latest_publisher = LatestFramePublisher(
+                key=publish_key,
+                drop_if_congested=publish_drop_if_congested,
+                express=publish_express,
+                max_hz=publish_max_hz,
+            )
+            if publish_max_hz > 0.0:
+                print(f"[INFO] publish async(process) enabled: key={publish_key} max_hz={publish_max_hz:.1f}")
+            else:
+                print(f"[INFO] publish async(process) enabled: key={publish_key} max_hz=unlimited")
+
+        if subscribe_enabled:
             session = ZenohSession()
 
-            if publish_enabled:
-                session.create_publisher(
-                    publish_key,
-                    drop_if_congested=publish_drop_if_congested,
-                    express=publish_express,
-                )
-                latest_publisher = LatestFramePublisher(
-                    session=session,
-                    key=publish_key,
-                    build_payload=result_to_target,
-                    max_hz=publish_max_hz,
-                )
-                if publish_max_hz > 0.0:
-                    print(f"[INFO] publish async enabled: key={publish_key} max_hz={publish_max_hz:.1f}")
-                else:
-                    print(f"[INFO] publish async enabled: key={publish_key} max_hz=unlimited")
+            def _on_color_message(data: Any) -> None:
+                try:
+                    msg = DamagePanelColorMessage.FromString(data.payload.to_bytes())
+                    next_color = _normalize_target_color(
+                        msg.color,
+                        source="DamagePanelColorMessage.color",
+                    )
+                except Exception as e:
+                    print(f"[WARN] failed to parse color message: {e}")
+                    return
 
-            if subscribe_enabled:
+                if target_color_state.set(next_color):
+                    print(f"[INFO] target color updated by subscribe: {next_color}")
 
-                def _on_color_message(data: Any) -> None:
-                    try:
-                        msg = DamagePanelColorMessage.FromString(data.payload.to_bytes())
-                        next_color = _normalize_target_color(
-                            msg.color,
-                            source="DamagePanelColorMessage.color",
-                        )
-                    except Exception as e:
-                        print(f"[WARN] failed to parse color message: {e}")
-                        return
-
-                    if target_color_state.set(next_color):
-                        print(f"[INFO] target color updated by subscribe: {next_color}")
-
-                session.create_subscriber(subscribe_key, _on_color_message)
+            session.create_subscriber(subscribe_key, _on_color_message)
 
         motion_logger = create_motion_logger(cfg.get("logging", {}))
 
@@ -263,7 +256,7 @@ def main() -> int:
                 time.sleep(0.01)
 
             if publish_enabled and latest_publisher is not None:
-                latest_publisher.submit(frame_result)
+                latest_publisher.submit(result_to_publish_payload(frame_result))
 
     finally:
         close_motion_logger(motion_logger)
@@ -271,7 +264,7 @@ def main() -> int:
             try:
                 latest_publisher.close()
             except Exception as e:
-                print(f"[WARN] publisher thread close failed: {e}")
+                print(f"[WARN] publisher process close failed: {e}")
         close_publisher(session)
         cap.release()
         cv2.destroyAllWindows()

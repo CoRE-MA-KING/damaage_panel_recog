@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import multiprocessing as mp
 import os
-import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -58,83 +58,158 @@ class ZenohSession:
             pass
 
 
+_STOP_TOKEN = ("__STOP__",)
+
+
+def _build_payload_from_payload(payload_data: tuple[bool, int, int, int, int, int]) -> Message:
+    from msg import DamagePanelTargetMessage, Target
+    from protovalidate import validate
+
+    has_target, x, y, width, height, distance = payload_data
+    if not has_target:
+        return DamagePanelTargetMessage(target=None)
+
+    msg = DamagePanelTargetMessage(
+        target=Target(
+            x=int(x),
+            y=int(y),
+            width=int(width),
+            height=int(height),
+            distance=int(distance),
+        )
+    )
+    validate(msg)
+    return msg
+
+
+def _publisher_process_main(
+    recv_conn: Any,
+    *,
+    key: str,
+    max_hz: float,
+    drop_if_congested: bool,
+    express: bool,
+) -> None:
+    session: ZenohSession | None = None
+    interval_sec = (1.0 / max_hz) if max_hz > 0.0 else 0.0
+    last_pub_t = 0.0
+
+    try:
+        session = ZenohSession()
+        session.create_publisher(
+            key,
+            drop_if_congested=drop_if_congested,
+            express=express,
+        )
+    except Exception as e:
+        print(f"[WARN] publisher process init failed: {e}")
+        return
+
+    while True:
+        try:
+            item = recv_conn.recv()
+        except EOFError:
+            break
+        if item == _STOP_TOKEN:
+            break
+
+        # Keep only the latest payload waiting in the pipe.
+        while recv_conn.poll():
+            try:
+                newer = recv_conn.recv()
+            except EOFError:
+                item = _STOP_TOKEN
+                break
+            if newer == _STOP_TOKEN:
+                item = _STOP_TOKEN
+                break
+            item = newer
+
+        if item == _STOP_TOKEN:
+            break
+
+        if interval_sec > 0.0 and last_pub_t > 0.0:
+            now = time.monotonic()
+            remain = interval_sec - (now - last_pub_t)
+            if remain > 0.0:
+                time.sleep(remain)
+
+        try:
+            payload = _build_payload_from_payload(item)
+            session.put(key, payload)
+            last_pub_t = time.monotonic()
+        except Exception as e:
+            print(f"[WARN] async publish failed: {e}")
+
+    if session is not None:
+        session.close()
+    try:
+        recv_conn.close()
+    except Exception:
+        pass
+
+
 class LatestFramePublisher:
-    """Background publisher that keeps only the latest pending item."""
+    """Process-based publisher that keeps only the latest pending payload."""
 
     def __init__(
         self,
         *,
-        session: ZenohSession,
         key: str,
-        build_payload: Callable[[Any], Message],
+        drop_if_congested: bool = True,
+        express: bool = True,
         max_hz: float = 0.0,
     ) -> None:
-        self._session = session
-        self._key = key
-        self._build_payload = build_payload
-        self._interval_sec = (1.0 / max_hz) if max_hz > 0.0 else 0.0
-
-        self._cond = threading.Condition()
-        self._latest: Any | None = None
-        self._has_item = False
-        self._stopping = False
-        self._last_pub_t = 0.0
-
-        self._thread = threading.Thread(
-            target=self._run,
-            name="latest-frame-publisher",
+        self._ctx = mp.get_context("spawn")
+        self._recv_conn, self._send_conn = self._ctx.Pipe(duplex=False)
+        try:
+            os.set_blocking(self._send_conn.fileno(), False)
+        except (AttributeError, OSError):
+            pass
+        self._closed = False
+        self._proc = self._ctx.Process(
+            target=_publisher_process_main,
+            kwargs={
+                "recv_conn": self._recv_conn,
+                "key": key,
+                "max_hz": float(max_hz),
+                "drop_if_congested": bool(drop_if_congested),
+                "express": bool(express),
+            },
+            name="latest-frame-publisher-process",
             daemon=True,
         )
-        self._thread.start()
+        self._proc.start()
 
-    def submit(self, item: Any) -> None:
-        with self._cond:
-            self._latest = item
-            self._has_item = True
-            self._cond.notify()
+    def _put_latest(self, payload_data: Any) -> None:
+        try:
+            self._send_conn.send(payload_data)
+        except (BlockingIOError, BrokenPipeError, EOFError, OSError):
+            pass
+
+    def submit(self, payload_data: tuple[bool, int, int, int, int, int]) -> None:
+        if self._closed:
+            return
+        if not self._proc.is_alive():
+            return
+        self._put_latest(payload_data)
 
     def close(self) -> None:
-        with self._cond:
-            self._stopping = True
-            self._cond.notify_all()
-        self._thread.join(timeout=3.0)
+        if self._closed:
+            return
+        self._closed = True
 
-    def _run(self) -> None:
-        while True:
-            with self._cond:
-                while not self._has_item and not self._stopping:
-                    self._cond.wait()
+        self._put_latest(_STOP_TOKEN)
+        try:
+            self._send_conn.close()
+        except Exception:
+            pass
+        self._proc.join(timeout=3.0)
+        if self._proc.is_alive():
+            self._proc.terminate()
+            self._proc.join(timeout=1.0)
 
-                if self._stopping and not self._has_item:
-                    return
-
-                if self._stopping:
-                    item = self._latest
-                    self._latest = None
-                    self._has_item = False
-                elif self._interval_sec > 0.0 and self._last_pub_t > 0.0:
-                    now = time.monotonic()
-                    remain = self._interval_sec - (now - self._last_pub_t)
-                    if remain > 0.0:
-                        self._cond.wait(timeout=remain)
-                        continue
-                    item = self._latest
-                    self._latest = None
-                    self._has_item = False
-                else:
-                    item = self._latest
-                    self._latest = None
-                    self._has_item = False
-
-            if item is None:
-                continue
-            try:
-                payload = self._build_payload(item)
-                self._session.put(self._key, payload)
-            except Exception as e:
-                print(f"[WARN] async publish failed: {e}")
-                continue
-
-            self._last_pub_t = time.monotonic()
-            if self._stopping:
-                return
+        try:
+            self._recv_conn.close()
+        except Exception:
+            pass

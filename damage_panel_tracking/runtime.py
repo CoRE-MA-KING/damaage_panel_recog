@@ -20,6 +20,9 @@ from .ui.draw import (
 from .utils.motion_logger import MotionLogger, default_motion_log_path
 
 
+PublishPayload = tuple[bool, int, int, int, int, int]
+
+
 def create_motion_logger(logging_cfg: Dict[str, Any]) -> MotionLogger | None:
     if not logging_cfg.get("enabled", False):
         return None
@@ -104,33 +107,54 @@ def render_frame(
     return bool(cv2.waitKey(1) & 0xFF == ord("q"))
 
 
+def _extract_target_values(result: FrameResult) -> tuple[int, int, int, int, int] | None:
+    target_values: tuple[int, int, int, int, int] | None = None
+
+    if result.chosen_from_tracks and result.selected_track is not None:
+        tx, ty = result.target
+        x1, y1, x2, y2 = result.selected_track.box_xyxy
+        target_values = (
+            int(tx),
+            int(ty),
+            max(0, int(x2 - x1)),
+            max(0, int(y2 - y1)),
+            0,
+        )
+
+    if result.selected_pair is not None:
+        tx, ty = result.target
+        _, _, uw, uh = result.selected_pair.union_xywh
+        target_values = (
+            int(tx),
+            int(ty),
+            int(uw),
+            int(uh),
+            999,  # 一時的な値
+        )
+
+    return target_values
+
+
+def result_to_publish_payload(result: FrameResult) -> PublishPayload:
+    target_values = _extract_target_values(result)
+    if target_values is None:
+        return (False, 0, 0, 0, 0, 0)
+    x, y, w, h, distance = target_values
+    return (True, x, y, w, h, distance)
+
+
 def result_to_target(result: FrameResult) -> DamagePanelTargetMessage:
     try:
-        target = None
-
-        if result.chosen_from_tracks and result.selected_track is not None:
-            tx, ty = result.target
-            x1, y1, x2, y2 = result.selected_track.box_xyxy
+        target_values = _extract_target_values(result)
+        if target_values is not None:
+            x, y, width, height, distance = target_values
             target = Target(
-                x=int(tx),
-                y=int(ty),
-                distance=999,  # 一時的な値
-                width=max(0, int(x2 - x1)),
-                height=max(0, int(y2 - y1)),
+                x=x,
+                y=y,
+                distance=distance,
+                width=width,
+                height=height,
             )
-
-        if result.selected_pair is not None:
-            tx, ty = result.target
-            _, _, uw, uh = result.selected_pair.union_xywh
-            target = Target(
-                x=int(tx),
-                y=int(ty),
-                distance=999,  # 一時的な値
-                width=int(uw),
-                height=int(uh),
-            )
-
-        if target is not None:
             msg = DamagePanelTargetMessage(target=target)
             validate(msg)
             return msg
