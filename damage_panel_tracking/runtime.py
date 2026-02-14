@@ -124,7 +124,7 @@ def result_to_target(result: FrameResult) -> DamagePanelTargetMessage:
         target = Target(
             x=int(tx),
             y=int(ty),
-            distance=0,
+            distance=999,  # 一時的な値
             width=int(uw),
             height=int(uh),
         )
