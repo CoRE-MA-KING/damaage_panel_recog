@@ -6,6 +6,14 @@ from typing import Any, Dict
 
 import cv2
 
+from msg import (
+    DamagePanelColorMessage,
+    DamagePanelTargetMessage,
+    Target,
+)
+
+from damage_panel_tracking.publish.zenoh_pub import ZenohSession
+
 from .camera.capture import setup_camera
 from .config import build_effective_config, load_config
 from .defaults import DEFAULTS
@@ -14,10 +22,9 @@ from .runtime import (
     close_motion_logger,
     close_publisher,
     create_motion_logger,
-    create_publisher,
     log_motion_sample,
-    publish_target,
     render_frame,
+    result_to_target,
 )
 from .ui.draw import TrackVizState
 from .ui.gui import create_setting_gui
@@ -72,7 +79,14 @@ def main() -> int:
     if use_gui:
         create_setting_gui(win_name, dev_path, cfg["detection"]["hsv"], cfg["camera"]["init_controls"])
 
-    publisher = create_publisher(cfg["publish"])
+    session = ZenohSession()
+
+    session.create_publisher("damagepanel/target")
+    session.create_subscriber("damagepanel/color", lambda data: print(
+        "color is: ",
+        DamagePanelColorMessage.FromString(data.payload.to_bytes()),
+    ))
+    
     motion_logger = create_motion_logger(cfg.get("logging", {}))
 
     tracker = None
@@ -136,11 +150,11 @@ def main() -> int:
             else:
                 time.sleep(0.01)
 
-            publish_target(publisher, frame_result)
+            session.put("damagepanel/target", result_to_target(frame_result))
 
     finally:
         close_motion_logger(motion_logger)
-        close_publisher(publisher)
+        close_publisher(session)
         cap.release()
         cv2.destroyAllWindows()
 

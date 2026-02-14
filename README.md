@@ -11,21 +11,26 @@
 
 ## 依存関係
 
-必須:
-- Python 3
-- numpy
-- opencv-python
-- pydantic
+### 必須
 
-任意:
-- pyyaml（YAML config使用時）
-- motpy（tracking backend=motpy 使用時）
-- zenoh（publish時）
+- [mise](https://mise.jdx.dev)
+  - 以下のパッケージを含みます(miseを使いたくない場合は、個別にインストールしてください) )
+    - [uv](https://astral.sh/uv)
+    - [buf](https://buf.build/product/cli)
+
+### 任意
+
 - v4l2-ctl（v4l-utilsに含まれる。起動時カメラ設定をしたい場合）
 
+    ```bash
+    sudo apt install v4l-utils
+    ```
+
+## 環境構築
+
 ```bash
-pip install -r requirements.txt
-sudo apt install v4l-utils
+mise build
+source ./.venv/bin/activate
 ```
 
 ---

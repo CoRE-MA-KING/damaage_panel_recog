@@ -1,24 +1,15 @@
-from __future__ import annotations
-
-from dataclasses import dataclass
-from pathlib import Path
 import os
+from pathlib import Path
+from typing import Callable
+
+import zenoh
+from google.protobuf.message import Message
 
 
-@dataclass
-class ZenohConfig:
-    publish_key: str = "damagepanel"
-
-
-class ZenohPublisher:
+class ZenohSession:
     """Small wrapper to keep zenoh optional."""
 
-    def __init__(self, cfg: ZenohConfig):
-        try:
-            import zenoh  # type: ignore
-        except Exception as e:
-            raise RuntimeError("zenoh is not installed. `pip install zenoh`") from e
-
+    def __init__(self) -> None:
         self._session = zenoh.open(
             zenoh.Config.from_file(
                 Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config"))
@@ -26,13 +17,23 @@ class ZenohPublisher:
                 / "zenoh.json5"
             )
         )
-        self._pub = self._session.declare_publisher(cfg.publish_key)
 
-    def put(self, payload: str) -> None:
-        self._pub.put(payload)
+        self._pub: dict[str, zenoh.Publisher] = {}
+
+    def create_publisher(self, key: str) -> None:
+        self._pub[key] = self._session.declare_publisher(key)
+
+    def create_subscriber(
+        self, key: str, callback: Callable[[zenoh.Sample], None]
+    ) -> None:
+        self._session.declare_subscriber(key, callback)
+
+    def put(self, key: str, payload: Message) -> None:
+        if key in self._pub:
+            self._pub[key].put(payload.SerializeToString())
 
     def close(self) -> None:
         try:
-            self._session.close()
+            self._session.close()  # type: ignore
         except Exception:
             pass

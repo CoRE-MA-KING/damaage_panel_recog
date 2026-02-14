@@ -3,18 +3,21 @@ from __future__ import annotations
 from typing import Any, Dict, Tuple
 
 import cv2
+from protovalidate import validate
 
-from .domain.message import DamagePanelRecognition, Target
+from msg import DamagePanelTargetMessage, Target
+
 from .pipeline import FrameResult
-from .publish.zenoh_pub import ZenohConfig, ZenohPublisher
-from .ui.draw import TrackVizState, draw_detection_pair, draw_fps, draw_mode, draw_target, draw_tracks
+from .publish.zenoh_pub import ZenohSession
+from .ui.draw import (
+    TrackVizState,
+    draw_detection_pair,
+    draw_fps,
+    draw_mode,
+    draw_target,
+    draw_tracks,
+)
 from .utils.motion_logger import MotionLogger, default_motion_log_path
-
-
-def create_publisher(publish_cfg: Dict[str, Any]) -> ZenohPublisher | None:
-    if not publish_cfg.get("enabled", False):
-        return None
-    return ZenohPublisher(ZenohConfig(publish_key=str(publish_cfg["publish_key"])))
 
 
 def create_motion_logger(logging_cfg: Dict[str, Any]) -> MotionLogger | None:
@@ -79,7 +82,13 @@ def render_frame(
         for pair in result.pairs:
             draw_detection_pair(frame, pair)
     else:
-        draw_tracks(frame, result.tracks, result.pairs, track_color=track_color_bgr, history=history)
+        draw_tracks(
+            frame,
+            result.tracks,
+            result.pairs,
+            track_color=track_color_bgr,
+            history=history,
+        )
 
     draw_target(frame, result.target, from_tracks=result.chosen_from_tracks)
     if tracking_enabled and tracker_available:
@@ -95,11 +104,13 @@ def render_frame(
     return bool(cv2.waitKey(1) & 0xFF == ord("q"))
 
 
-def _build_publish_target(result: FrameResult) -> Target | None:
+def result_to_target(result: FrameResult) -> DamagePanelTargetMessage:
+    target = None
+
     if result.chosen_from_tracks and result.selected_track is not None:
         tx, ty = result.target
         x1, y1, x2, y2 = result.selected_track.box_xyxy
-        return Target(
+        target = Target(
             x=int(tx),
             y=int(ty),
             distance=0,
@@ -110,25 +121,23 @@ def _build_publish_target(result: FrameResult) -> Target | None:
     if result.selected_pair is not None:
         tx, ty = result.target
         _, _, uw, uh = result.selected_pair.union_xywh
-        return Target(
+        target = Target(
             x=int(tx),
             y=int(ty),
-            distance=0,
+            distance=999,  # 一時的な値
             width=int(uw),
             height=int(uh),
         )
 
-    return None
-
-
-def publish_target(publisher: ZenohPublisher | None, result: FrameResult) -> None:
-    if publisher is None:
-        return
-    publisher.put(
-        DamagePanelRecognition(
-            target=_build_publish_target(result)
-        ).model_dump_json()
-    )
+    if target is not None:
+        try:
+            validate(target)
+            msg = DamagePanelTargetMessage(target=target)
+            validate(msg)
+            return msg
+        except Exception as e:
+            print(f"[WARN] target validation failed: {e}")
+    return DamagePanelTargetMessage(target=None)
 
 
 def close_motion_logger(motion_logger: MotionLogger | None) -> None:
@@ -136,15 +145,17 @@ def close_motion_logger(motion_logger: MotionLogger | None) -> None:
         return
     try:
         motion_logger.close()
-        print(f"[INFO] motion log saved: {motion_logger.path} ({motion_logger.summary_text()})")
+        print(
+            f"[INFO] motion log saved: {motion_logger.path} ({motion_logger.summary_text()})"
+        )
     except Exception as e:
         print(f"[WARN] motion logger close failed: {e}")
 
 
-def close_publisher(publisher: ZenohPublisher | None) -> None:
-    if publisher is None:
+def close_publisher(session: ZenohSession | None) -> None:
+    if session is None:
         return
     try:
-        publisher.close()
+        session.close()
     except Exception:
         pass
