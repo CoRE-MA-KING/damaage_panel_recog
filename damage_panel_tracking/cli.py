@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import threading
 import time
 from typing import Any, Dict
@@ -9,11 +10,9 @@ import cv2
 
 from msg import (
     DamagePanelColorMessage,
-    DamagePanelTargetMessage,
-    Target,
 )
 
-from damage_panel_tracking.publish.zenoh_pub import ZenohSession
+from damage_panel_tracking.publish.zenoh_pub import LatestFramePublisher, ZenohSession
 
 from .camera.capture import setup_camera
 from .config import build_effective_config, load_config
@@ -64,6 +63,7 @@ def _normalize_target_color(value: Any, *, source: str) -> ColorName:
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("-p", "--publish", action="store_true", help="Zenohにpublishする")
+    ap.add_argument("--publish-max-hz", default=None, type=float, help="publishの最大レート(Hz)。0以下で無制限")
     ap.add_argument("--subscribe", action="store_true", help="Zenohからtarget colorをsubscribeする")
     ap.add_argument("--default-target", default=None, help="subscribe無効時/受信前に使う色（blue|red）")
     ap.add_argument("-n", "--no-display", action="store_true", help="映像表示を行わない（GUIも無効）")
@@ -93,8 +93,15 @@ def _apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> None:
 
     if args.default_target is not None:
         cfg["subscribe"]["default_target"] = str(args.default_target)
+    if args.publish_max_hz is not None:
+        cfg["publish"]["max_hz"] = float(args.publish_max_hz)
 
     cfg["publish"]["publish_key"] = str(cfg["publish"].get("publish_key", "damagepanel/target"))
+    cfg["publish"]["max_hz"] = float(cfg["publish"].get("max_hz", 0.0))
+    if not math.isfinite(cfg["publish"]["max_hz"]):
+        raise ValueError(f"publish.max_hz must be a finite number: got {cfg['publish']['max_hz']!r}")
+    cfg["publish"]["drop_if_congested"] = bool(cfg["publish"].get("drop_if_congested", True))
+    cfg["publish"]["express"] = bool(cfg["publish"].get("express", True))
     cfg["subscribe"]["subscribe_key"] = str(cfg["subscribe"].get("subscribe_key", "damagepanel/color"))
     cfg["subscribe"]["default_target"] = _normalize_target_color(
         cfg["subscribe"].get("default_target", "blue"),
@@ -129,12 +136,16 @@ def main() -> int:
     publish_enabled = bool(cfg["publish"]["enabled"])
     subscribe_enabled = bool(cfg["subscribe"]["enabled"])
     publish_key = str(cfg["publish"]["publish_key"])
+    publish_max_hz = float(cfg["publish"]["max_hz"])
+    publish_drop_if_congested = bool(cfg["publish"]["drop_if_congested"])
+    publish_express = bool(cfg["publish"]["express"])
     subscribe_key = str(cfg["subscribe"]["subscribe_key"])
     target_color_state = TargetColorState(cfg["subscribe"]["default_target"])
     if not subscribe_enabled:
         print(f"[INFO] subscribe disabled: target color={target_color_state.get()}")
 
     session: ZenohSession | None = None
+    latest_publisher: LatestFramePublisher | None = None
     motion_logger = None
     tracker = None
     viz = TrackVizState(history_len=int(cfg["tracking"]["history_len"]))
@@ -144,7 +155,21 @@ def main() -> int:
             session = ZenohSession()
 
             if publish_enabled:
-                session.create_publisher(publish_key)
+                session.create_publisher(
+                    publish_key,
+                    drop_if_congested=publish_drop_if_congested,
+                    express=publish_express,
+                )
+                latest_publisher = LatestFramePublisher(
+                    session=session,
+                    key=publish_key,
+                    build_payload=result_to_target,
+                    max_hz=publish_max_hz,
+                )
+                if publish_max_hz > 0.0:
+                    print(f"[INFO] publish async enabled: key={publish_key} max_hz={publish_max_hz:.1f}")
+                else:
+                    print(f"[INFO] publish async enabled: key={publish_key} max_hz=unlimited")
 
             if subscribe_enabled:
 
@@ -237,11 +262,16 @@ def main() -> int:
             else:
                 time.sleep(0.01)
 
-            if publish_enabled and session is not None:
-                session.put(publish_key, result_to_target(frame_result))
+            if publish_enabled and latest_publisher is not None:
+                latest_publisher.submit(frame_result)
 
     finally:
         close_motion_logger(motion_logger)
+        if latest_publisher is not None:
+            try:
+                latest_publisher.close()
+            except Exception as e:
+                print(f"[WARN] publisher thread close failed: {e}")
         close_publisher(session)
         cap.release()
         cv2.destroyAllWindows()

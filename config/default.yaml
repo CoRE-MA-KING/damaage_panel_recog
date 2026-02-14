@@ -117,6 +117,9 @@ tracking:
 publish:
   enabled: true
   publish_key: damagepanel/target
+  max_hz: 0.0  # <= 0 なら無制限（可能な限り高速）
+  drop_if_congested: true
+  express: true
 
 subscribe:
   enabled: true
