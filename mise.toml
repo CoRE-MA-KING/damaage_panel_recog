@@ -3,6 +3,9 @@ buf = "latest"
 protoc = "latest"
 uv = "0.9"
 
+[tasks.fetch]
+run = "git submodule update --init --recursive"
+
 [tasks.generate_proto]
 description = "Generate Python code from Protobuf files"
 run = "buf generate"
