@@ -79,6 +79,36 @@ DEFAULTS: Dict[str, Any] = {
         "window_name": "Panel (paired by same-color top & bottom)",
         "fps_ema_alpha": 0.2,
     },
+    "coordinate_transform": {
+        "enabled": False,
+        # Vertical span between top/bottom LED centers [m].
+        "panel_vertical_span_m": 0.180,
+        "panel_recog_camera": {
+            "intrinsics_path": "calib/intrinsics_panel_recog_camera.yaml",
+            "calib_size": "1280x720",
+        },
+        "publish_main_camera": {
+            "intrinsics_path": "calib/intrinsics_main_camera_publish.yaml",
+            "extrinsics_from_panel_recog_path": "calib/extrinsics_panel_recog_camera_to_main_camera_publish.yaml",
+            "calib_size": "1280x720",
+            "frame_size": "1280x720",
+        },
+        "debug_overlay": {
+            "enabled": False,
+            "window_name": "Main Camera (projected target)",
+            "use_publish_main_camera_params": True,
+            "camera": {
+                "device": "/dev/video0",
+                "capture": {"width": 1280, "height": 720, "fps": 60, "fourcc": "MJPG"},
+                "init_controls": {},
+            },
+            "main_camera": {
+                "intrinsics_path": "calib/intrinsics_main_camera_debug.yaml",
+                "extrinsics_from_panel_recog_path": "calib/extrinsics_panel_recog_camera_to_main_camera_debug.yaml",
+                "calib_size": "1280x720",
+            },
+        },
+    },
     "logging": {
         "enabled": False,
         "path": None,

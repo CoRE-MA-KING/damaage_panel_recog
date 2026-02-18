@@ -129,3 +129,41 @@ subscribe:
 ui:
   window_name: "Panel (paired by same-color top & bottom)"
   fps_ema_alpha: 0.2
+
+# panel_recog_camera座標 -> main_camera座標 への変換設定
+# publish時は publish_main_camera を使う
+coordinate_transform:
+  enabled: false
+  panel_vertical_span_m: 0.180
+
+  panel_recog_camera:
+    intrinsics_path: calib/intrinsics_panel_recog_camera.yaml
+    calib_size: 1280x720
+
+  # publish先アプリのmain_camera情報
+  publish_main_camera:
+    intrinsics_path: calib/intrinsics_main_camera_publish.yaml
+    extrinsics_from_panel_recog_path: calib/extrinsics_panel_recog_camera_to_main_camera_publish.yaml
+    calib_size: 1280x720
+    frame_size: 1280x720
+
+  # damage_panel_recog側でmain_cameraを表示して、投影位置を確認したい場合
+  debug_overlay:
+    enabled: false
+    window_name: "Main Camera (projected target)"
+    use_publish_main_camera_params: true
+
+    camera:
+      device: /dev/video0
+      capture:
+        width: 1280
+        height: 720
+        fps: 60
+        fourcc: MJPG
+      init_controls: {}
+
+    # use_publish_main_camera_params: false のときのみ使用
+    main_camera:
+      intrinsics_path: calib/intrinsics_main_camera_debug.yaml
+      extrinsics_from_panel_recog_path: calib/extrinsics_panel_recog_camera_to_main_camera_debug.yaml
+      calib_size: 1280x720

@@ -80,6 +80,7 @@ def render_frame(
     history: TrackVizState,
     fps: float,
     win_name: str,
+    poll_key: bool = True,
 ) -> bool:
     if not tracking_enabled or not tracker_available:
         for pair in result.pairs:
@@ -104,6 +105,8 @@ def render_frame(
     draw_fps(frame, fps)
 
     cv2.imshow(win_name, frame)
+    if not poll_key:
+        return False
     return bool(cv2.waitKey(1) & 0xFF == ord("q"))
 
 
