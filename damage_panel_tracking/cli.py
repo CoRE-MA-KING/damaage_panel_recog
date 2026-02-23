@@ -28,11 +28,8 @@ from .runtime import (
     result_to_publish_payload,
 )
 from .transform import (
-    ProjectionModel,
-    build_projection_model,
+    TransformSession,
     draw_projected_overlay,
-    parse_size,
-    project_pair_to_main_camera,
     projected_to_publish_payload,
 )
 from .ui.draw import TrackVizState
@@ -128,13 +125,6 @@ def _apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> None:
     )
 
 
-def _parse_optional_size(value: Any, *, field_name: str) -> tuple[int, int] | None:
-    try:
-        return parse_size(value)
-    except ValueError as e:
-        raise ValueError(f"{field_name}: {e}") from e
-
-
 def _read_first_frame(cap: cv2.VideoCapture, *, camera_label: str) -> Any:
     attempts = 0
     while True:
@@ -162,14 +152,6 @@ def main() -> int:
     use_gui = bool(args.setting) and do_display
 
     transform_cfg = cfg.get("coordinate_transform", {})
-    transform_enabled = bool(transform_cfg.get("enabled", False))
-    debug_overlay_cfg = transform_cfg.get("debug_overlay", {})
-    debug_overlay_enabled = bool(debug_overlay_cfg.get("enabled", False))
-    if debug_overlay_enabled and not transform_enabled:
-        transform_enabled = True
-    if debug_overlay_enabled and not do_display:
-        print("[WARN] coordinate_transform.debug_overlay is enabled but --no-display was set. debug overlay is disabled.")
-        debug_overlay_enabled = False
 
     device = normalize_device_arg(cfg["camera"]["device"])
     cap, dev_path = setup_camera(device, cfg["camera"]["capture"], cfg["camera"]["init_controls"])
@@ -197,14 +179,10 @@ def main() -> int:
     motion_logger = None
     tracker = None
     viz = TrackVizState(history_len=int(cfg["tracking"]["history_len"]))
-    main_cap: cv2.VideoCapture | None = None
-    main_window_name = str(debug_overlay_cfg.get("window_name", "Main Camera (projected target)"))
-    publish_projection_model: ProjectionModel | None = None
-    debug_projection_model: ProjectionModel | None = None
+    transform_session: TransformSession | None = None
 
     next_panel_frame = _read_first_frame(cap, camera_label="panel_recog_camera")
     panel_frame_size = (int(next_panel_frame.shape[1]), int(next_panel_frame.shape[0]))
-    next_main_frame = None
 
     try:
         if publish_enabled:
@@ -247,106 +225,15 @@ def main() -> int:
                 print(f"[WARN] tracking backend init failed: {e}")
                 tracker = None
 
-        if transform_enabled:
-            try:
-                panel_cfg = transform_cfg.get("panel_recog_camera", {})
-                publish_main_cfg = transform_cfg.get("publish_main_camera", {})
-
-                panel_intrinsics_path = str(panel_cfg.get("intrinsics_path", "")).strip()
-                if not panel_intrinsics_path:
-                    raise ValueError("coordinate_transform.panel_recog_camera.intrinsics_path is required")
-                panel_calib_size = _parse_optional_size(
-                    panel_cfg.get("calib_size"),
-                    field_name="coordinate_transform.panel_recog_camera.calib_size",
-                )
-
-                publish_main_intrinsics_path = str(publish_main_cfg.get("intrinsics_path", "")).strip()
-                if not publish_main_intrinsics_path:
-                    raise ValueError("coordinate_transform.publish_main_camera.intrinsics_path is required")
-                publish_main_extrinsics_path = str(publish_main_cfg.get("extrinsics_from_panel_recog_path", "")).strip()
-                if not publish_main_extrinsics_path:
-                    raise ValueError(
-                        "coordinate_transform.publish_main_camera.extrinsics_from_panel_recog_path is required"
-                    )
-                publish_main_calib_size = _parse_optional_size(
-                    publish_main_cfg.get("calib_size"),
-                    field_name="coordinate_transform.publish_main_camera.calib_size",
-                )
-                publish_main_frame_size = _parse_optional_size(
-                    publish_main_cfg.get("frame_size"),
-                    field_name="coordinate_transform.publish_main_camera.frame_size",
-                ) or publish_main_calib_size
-                if publish_main_frame_size is None:
-                    raise ValueError(
-                        "coordinate_transform.publish_main_camera.frame_size or calib_size is required"
-                    )
-
-                panel_vertical_span_m = float(transform_cfg.get("panel_vertical_span_m", 0.180))
-                publish_projection_model = build_projection_model(
-                    panel_intrinsics_path=panel_intrinsics_path,
-                    main_intrinsics_path=publish_main_intrinsics_path,
-                    extrinsics_panel_to_main_path=publish_main_extrinsics_path,
-                    panel_vertical_span_m=panel_vertical_span_m,
-                    panel_frame_size=panel_frame_size,
-                    main_frame_size=publish_main_frame_size,
-                    panel_calib_size=panel_calib_size,
-                    main_calib_size=publish_main_calib_size,
-                )
-                print(
-                    "[INFO] coordinate transform enabled for publish: "
-                    f"panel_recog_camera->{publish_projection_model.main_frame_size[0]}x{publish_projection_model.main_frame_size[1]} main_camera"
-                )
-
-                if debug_overlay_enabled:
-                    debug_camera_cfg = debug_overlay_cfg.get("camera", {})
-                    debug_device = normalize_device_arg(debug_camera_cfg.get("device", "/dev/video0"))
-                    main_cap, _ = setup_camera(
-                        debug_device,
-                        debug_camera_cfg.get("capture", {}),
-                        debug_camera_cfg.get("init_controls", {}),
-                    )
-                    next_main_frame = _read_first_frame(main_cap, camera_label="main_camera")
-                    debug_main_frame_size = (int(next_main_frame.shape[1]), int(next_main_frame.shape[0]))
-                    if do_display:
-                        cv2.namedWindow(main_window_name, cv2.WINDOW_NORMAL)
-
-                    use_publish_params = bool(debug_overlay_cfg.get("use_publish_main_camera_params", True))
-                    if use_publish_params:
-                        debug_intrinsics_path = publish_main_intrinsics_path
-                        debug_extrinsics_path = publish_main_extrinsics_path
-                        debug_main_calib_size = publish_main_calib_size
-                    else:
-                        debug_main_cfg = debug_overlay_cfg.get("main_camera", {})
-                        debug_intrinsics_path = str(debug_main_cfg.get("intrinsics_path", "")).strip()
-                        if not debug_intrinsics_path:
-                            raise ValueError("coordinate_transform.debug_overlay.main_camera.intrinsics_path is required")
-                        debug_extrinsics_path = str(debug_main_cfg.get("extrinsics_from_panel_recog_path", "")).strip()
-                        if not debug_extrinsics_path:
-                            raise ValueError(
-                                "coordinate_transform.debug_overlay.main_camera.extrinsics_from_panel_recog_path is required"
-                            )
-                        debug_main_calib_size = _parse_optional_size(
-                            debug_main_cfg.get("calib_size"),
-                            field_name="coordinate_transform.debug_overlay.main_camera.calib_size",
-                        )
-
-                    debug_projection_model = build_projection_model(
-                        panel_intrinsics_path=panel_intrinsics_path,
-                        main_intrinsics_path=debug_intrinsics_path,
-                        extrinsics_panel_to_main_path=debug_extrinsics_path,
-                        panel_vertical_span_m=panel_vertical_span_m,
-                        panel_frame_size=panel_frame_size,
-                        main_frame_size=debug_main_frame_size,
-                        panel_calib_size=panel_calib_size,
-                        main_calib_size=debug_main_calib_size,
-                    )
-                    print(
-                        "[INFO] debug overlay enabled: "
-                        f"main camera window={main_window_name!r} size={debug_main_frame_size[0]}x{debug_main_frame_size[1]}"
-                    )
-            except Exception as e:
-                print(f"[ERROR] coordinate transform init failed: {e}")
-                return 2
+        try:
+            transform_session = TransformSession.create(
+                transform_cfg,
+                panel_frame_size=panel_frame_size,
+                do_display=do_display,
+            )
+        except Exception as e:
+            print(f"[ERROR] coordinate transform init failed: {e}")
+            return 2
 
         last_t = time.time()
         fps = 0.0
@@ -365,14 +252,8 @@ def main() -> int:
                     continue
 
             main_frame = None
-            if main_cap is not None:
-                if next_main_frame is not None:
-                    main_frame = next_main_frame
-                    next_main_frame = None
-                else:
-                    ok_main, frame_main = main_cap.read()
-                    if ok_main:
-                        main_frame = frame_main
+            if transform_session is not None:
+                main_frame = transform_session.read_debug_main_frame()
 
             frame_idx += 1
 
@@ -403,12 +284,9 @@ def main() -> int:
             )
 
             publish_projected = None
-            if publish_projection_model is not None and frame_result.selected_pair is not None:
-                publish_projected = project_pair_to_main_camera(frame_result.selected_pair, publish_projection_model)
-
             debug_projected = None
-            if debug_projection_model is not None and frame_result.selected_pair is not None:
-                debug_projected = project_pair_to_main_camera(frame_result.selected_pair, debug_projection_model)
+            if transform_session is not None:
+                publish_projected, debug_projected = transform_session.project_selected_pair(frame_result.selected_pair)
 
             log_motion_sample(
                 motion_logger=motion_logger,
@@ -420,7 +298,7 @@ def main() -> int:
 
             should_quit = False
             if do_display:
-                if main_cap is not None:
+                if transform_session is not None and transform_session.debug_main_cap is not None:
                     should_quit = render_frame(
                         frame,
                         result=frame_result,
@@ -434,7 +312,7 @@ def main() -> int:
                     )
                     if main_frame is not None:
                         draw_projected_overlay(main_frame, debug_projected, label="panel")
-                        cv2.imshow(main_window_name, main_frame)
+                        cv2.imshow(transform_session.debug_main_window_name, main_frame)
                     key = cv2.waitKey(1) & 0xFF
                     if key == ord("q"):
                         should_quit = True
@@ -457,10 +335,10 @@ def main() -> int:
 
             if publish_enabled and latest_publisher is not None:
                 payload = result_to_publish_payload(frame_result)
-                if publish_projection_model is not None:
+                if transform_session is not None and transform_session.publish_model is not None:
                     payload = projected_to_publish_payload(
                         publish_projected,
-                        main_frame_size=publish_projection_model.main_frame_size,
+                        main_frame_size=transform_session.publish_model.main_frame_size,
                     )
                 latest_publisher.submit(payload)
 
@@ -472,8 +350,8 @@ def main() -> int:
             except Exception as e:
                 print(f"[WARN] publisher process close failed: {e}")
         close_publisher(session)
-        if main_cap is not None:
-            main_cap.release()
+        if transform_session is not None:
+            transform_session.close()
         cap.release()
         cv2.destroyAllWindows()
 

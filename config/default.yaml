@@ -115,14 +115,14 @@ tracking:
     max_staleness: 4
 
 publish:
-  enabled: true
+  enabled: false
   publish_key: damagepanel/target
   max_hz: 0.0  # <= 0 なら無制限（可能な限り高速）
   drop_if_congested: true
   express: true
 
 subscribe:
-  enabled: true
+  enabled: false
   subscribe_key: damagepanel/color
   default_target: blue  # blue | red
 
@@ -154,7 +154,7 @@ coordinate_transform:
     use_publish_main_camera_params: true
 
     camera:
-      device: /dev/video0
+      device: /dev/video6
       capture:
         width: 1280
         height: 720
