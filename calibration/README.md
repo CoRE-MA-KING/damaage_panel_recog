@@ -29,8 +29,8 @@ python3 calibration/capture_calib_images.py --mode pair --main-device /dev/video
 ## 2) 内部パラメータ推定
 
 ```bash
-python3 calibration/calibrate_intrinsics.py --img-dir calib/main_camera --out calib/intrinsics_main_camera.yaml --board-cols 4 --board-rows 7 --square-size 0.09
-python3 calibration/calibrate_intrinsics.py --img-dir calib/panel_recog_camera --out calib/intrinsics_panel_recog_camera.yaml --board-cols 4 --board-rows 7 --square-size 0.09
+python3 calibration/calibrate_intrinsics.py --img-dir calib/main_camera --out calib/intrinsics_main_camera.yaml --board-cols 5 --board-rows 9 --square-size 0.005
+python3 calibration/calibrate_intrinsics.py --img-dir calib/panel_recog_camera --out calib/intrinsics_panel_recog_camera.yaml --board-cols 5 --board-rows 9 --square-size 0.05
 ```
 
 ## 3) 外部パラメータ推定
@@ -46,7 +46,7 @@ python3 calibration/calibrate_extrinsics.py --mode ideal --baseline 0.35 --out c
 ### ペア画像から推定（stereo）
 
 ```bash
-python3 calibration/calibrate_extrinsics.py --mode stereo --dir-main calib/main_camera --dir-panel-recog calib/panel_recog_camera --intr-main calib/intrinsics_main_camera.yaml --intr-panel-recog calib/intrinsics_panel_recog_camera.yaml --out calib/extrinsics_panel_recog_camera_to_main_camera.yaml --board-cols 4 --board-rows 7 --square-size 0.09
+python3 calibration/calibrate_extrinsics.py --mode stereo --dir-main calib/main_camera --dir-panel-recog calib/panel_recog_camera --intr-main calib/intrinsics_main_camera.yaml --intr-panel-recog calib/intrinsics_panel_recog_camera.yaml --out calib/extrinsics_panel_recog_camera_to_main_camera.yaml --board-cols 5 --board-rows 9 --square-size 0.05
 ```
 
 ## 4) 主なYAML命名例
