@@ -8,15 +8,18 @@
 ### 単体（内部パラメータ用）
 
 ```bash
-python3 calibration/capture_calib_images.py --mode single --device /dev/video0 --camera-role main_camera --out-dir calib/main_camera
-python3 calibration/capture_calib_images.py --mode single --device /dev/video2 --camera-role panel_recog_camera --out-dir calib/panel_recog_camera
+python3 calibration/capture_calib_images.py --mode single --device /dev/video4 --camera-role main_camera --out-dir calib/main_camera
+python3 calibration/capture_calib_images.py --mode single --device /dev/video6 --camera-role panel_recog_camera --out-dir calib/panel_recog_camera
 ```
 
 ### 同時（外部パラメータ用のペア画像）
 
 ```bash
-python3 calibration/capture_calib_images.py --mode pair --main-device /dev/video0 --panel-recog-device /dev/video2 --out-main calib/main_camera --out-panel-recog calib/panel_recog_camera
+python3 calibration/capture_calib_images.py --mode pair --main-device /dev/video4 --panel-recog-device /dev/video6 --out-main calib/main_camera --out-panel-recog calib/panel_recog_camera --width 1280 --height 720
 ```
+
+`pair` モードでは `--width/--height` を両カメラ共通値として使えます。  
+`fps` は引数未指定時に両カメラともデフォルトで `30` が使われます。
 
 ペア画像は次の名前で保存されます。
 
@@ -33,6 +36,8 @@ python3 calibration/calibrate_intrinsics.py --img-dir calib/panel_recog_camera -
 ## 3) 外部パラメータ推定
 
 ### 理想モデル（PoC）
+
+基本的には使いませんが、取り付け位置が理想的な状態で実行してパラメータを作成します。
 
 ```bash
 python3 calibration/calibrate_extrinsics.py --mode ideal --baseline 0.35 --out calib/extrinsics_panel_recog_camera_to_main_camera.yaml

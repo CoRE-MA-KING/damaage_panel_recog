@@ -11,6 +11,7 @@ import cv2
 
 
 CAMERA_ROLES = ("main_camera", "panel_recog_camera")
+DEFAULT_FPS = 90
 
 
 def ensure_dir(path: str) -> None:
@@ -140,10 +141,15 @@ def main() -> None:
     ap.add_argument("--device", default=None, help="single: camera device (e.g. /dev/video0)")
     ap.add_argument("--camera-role", choices=list(CAMERA_ROLES), default="panel_recog_camera")
     ap.add_argument("--out-dir", default=None, help="single: output dir (default: calib/<camera-role>)")
-    ap.add_argument("--width", type=int, default=None)
-    ap.add_argument("--height", type=int, default=None)
-    ap.add_argument("--fps", type=int, default=None)
-    ap.add_argument("--fourcc", default="")
+    ap.add_argument("--width", type=int, default=None, help="single: width / pair: common width for both cameras")
+    ap.add_argument("--height", type=int, default=None, help="single: height / pair: common height for both cameras")
+    ap.add_argument(
+        "--fps",
+        type=int,
+        default=DEFAULT_FPS,
+        help=f"single: fps / pair: common fps for both cameras (default: {DEFAULT_FPS})",
+    )
+    ap.add_argument("--fourcc", default="", help="single: fourcc / pair: common fourcc for both cameras")
 
     # pair (new names)
     ap.add_argument("--main-device", default=None, help="pair: main_camera device")
@@ -204,6 +210,37 @@ def main() -> None:
     height_panel = args.height_panel_recog if args.heightB is None else args.heightB
     fps_panel = args.fps_panel_recog if args.fpsB is None else args.fpsB
     fourcc_panel = args.fourcc_panel_recog if args.fourccB is None else args.fourccB
+
+    # Common pair settings (from --width/--height/--fps/--fourcc).
+    # If per-camera values are omitted, apply common values to both.
+    if width_main is None:
+        width_main = args.width
+    if width_panel is None:
+        width_panel = args.width
+    if height_main is None:
+        height_main = args.height
+    if height_panel is None:
+        height_panel = args.height
+    if fps_main is None:
+        fps_main = args.fps
+    if fps_panel is None:
+        fps_panel = args.fps
+    if fourcc_main in (None, ""):
+        fourcc_main = args.fourcc
+    if fourcc_panel in (None, ""):
+        fourcc_panel = args.fourcc
+
+    # This tool assumes both cameras use the same image size in pair mode.
+    if width_main is not None and width_panel is not None and int(width_main) != int(width_panel):
+        ap.error(
+            "pair mode assumes the same resolution for both cameras: "
+            f"--width-main({width_main}) != --width-panel-recog({width_panel})"
+        )
+    if height_main is not None and height_panel is not None and int(height_main) != int(height_panel):
+        ap.error(
+            "pair mode assumes the same resolution for both cameras: "
+            f"--height-main({height_main}) != --height-panel-recog({height_panel})"
+        )
 
     if not main_device or not panel_device:
         ap.error("pair mode requires --main-device and --panel-recog-device")

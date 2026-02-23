@@ -5,7 +5,7 @@
 # - tracking.motpy は backend: motpy のときだけ参照されます（distance/noopでは無視されます）。
 
 camera:
-  device: /dev/video4
+  device: /dev/video6
   capture:
     width: 1280
     height: 720
@@ -154,7 +154,7 @@ coordinate_transform:
     use_publish_main_camera_params: true
 
     camera:
-      device: /dev/video6
+      device: /dev/video4
       capture:
         width: 1280
         height: 720
