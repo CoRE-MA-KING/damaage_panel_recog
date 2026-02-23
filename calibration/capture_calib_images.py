@@ -10,7 +10,6 @@ import re
 import cv2
 
 
-CAMERA_ROLES = ("main_camera", "panel_recog_camera")
 DEFAULT_FPS = 90
 
 
@@ -48,33 +47,14 @@ def next_index(out_dir: str, regex: str) -> int:
     return max_n + 1
 
 
-def run_single(device: str, out_dir: str, camera_role: str, width: int | None, height: int | None, fps: int | None, fourcc: str) -> None:
-    ensure_dir(out_dir)
-    cap = open_cap(device, width=width, height=height, fps=fps, fourcc=fourcc)
-    idx = next_index(out_dir, rf"single_(\d+)_{camera_role}\.png")
-    shown_size = False
-    win = f"single:{camera_role} (s=save, q=quit)"
-    try:
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                continue
-            if not shown_size:
-                h, w = frame.shape[:2]
-                print(f"[INFO] actual size ({camera_role}): {w}x{h}")
-                shown_size = True
-            cv2.imshow(win, frame)
-            key = cv2.waitKey(1) & 0xFF
-            if key in (ord("q"), 27):
-                break
-            if key == ord("s"):
-                path = os.path.join(out_dir, f"single_{idx:04d}_{camera_role}.png")
-                cv2.imwrite(path, frame)
-                print(f"saved: {path}")
-                idx += 1
-    finally:
-        cap.release()
-        cv2.destroyAllWindows()
+def pick_common_or_specific(common: int | None, specific: int | None) -> int | None:
+    return common if specific is None else specific
+
+
+def pick_fourcc(common: str, specific: str | None) -> str:
+    if specific in (None, ""):
+        return common
+    return specific
 
 
 def run_pair(
@@ -135,100 +115,43 @@ def run_pair(
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["single", "pair"], required=True)
+    ap.add_argument("--mode", choices=["pair"], default="pair", help=argparse.SUPPRESS)
 
-    # single
-    ap.add_argument("--device", default=None, help="single: camera device (e.g. /dev/video0)")
-    ap.add_argument("--camera-role", choices=list(CAMERA_ROLES), default="panel_recog_camera")
-    ap.add_argument("--out-dir", default=None, help="single: output dir (default: calib/<camera-role>)")
-    ap.add_argument("--width", type=int, default=None, help="single: width / pair: common width for both cameras")
-    ap.add_argument("--height", type=int, default=None, help="single: height / pair: common height for both cameras")
+    ap.add_argument("--main-device", required=True, help="main_camera device (e.g. /dev/video4)")
+    ap.add_argument("--panel-recog-device", required=True, help="panel_recog_camera device (e.g. /dev/video6)")
+    ap.add_argument("--out-main", default="calib/main_camera")
+    ap.add_argument("--out-panel-recog", default="calib/panel_recog_camera")
+    ap.add_argument("--width", type=int, default=None, help="common width for both cameras")
+    ap.add_argument("--height", type=int, default=None, help="common height for both cameras")
     ap.add_argument(
         "--fps",
         type=int,
         default=DEFAULT_FPS,
-        help=f"single: fps / pair: common fps for both cameras (default: {DEFAULT_FPS})",
+        help=f"common fps for both cameras (default: {DEFAULT_FPS})",
     )
-    ap.add_argument("--fourcc", default="", help="single: fourcc / pair: common fourcc for both cameras")
+    ap.add_argument("--fourcc", default="", help="common fourcc for both cameras")
 
-    # pair (new names)
-    ap.add_argument("--main-device", default=None, help="pair: main_camera device")
-    ap.add_argument("--panel-recog-device", default=None, help="pair: panel_recog_camera device")
-    ap.add_argument("--out-main", default="calib/main_camera")
-    ap.add_argument("--out-panel-recog", default="calib/panel_recog_camera")
     ap.add_argument("--width-main", type=int, default=None)
     ap.add_argument("--height-main", type=int, default=None)
     ap.add_argument("--fps-main", type=int, default=None)
-    ap.add_argument("--fourcc-main", default="")
+    ap.add_argument("--fourcc-main", default=None)
     ap.add_argument("--width-panel-recog", type=int, default=None)
     ap.add_argument("--height-panel-recog", type=int, default=None)
     ap.add_argument("--fps-panel-recog", type=int, default=None)
-    ap.add_argument("--fourcc-panel-recog", default="")
-
-    # pair (compat aliases)
-    ap.add_argument("--deviceA", default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--deviceB", default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--outA", default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--outB", default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--widthA", type=int, default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--heightA", type=int, default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--fpsA", type=int, default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--fourccA", default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--widthB", type=int, default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--heightB", type=int, default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--fpsB", type=int, default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--fourccB", default=None, help=argparse.SUPPRESS)
+    ap.add_argument("--fourcc-panel-recog", default=None)
 
     args = ap.parse_args()
 
     print("[press key]\n 's': save the picture\n 'q': quit")
 
-    if args.mode == "single":
-        if args.device is None:
-            ap.error("single mode requires --device")
-        out_dir = args.out_dir or os.path.join("calib", args.camera_role)
-        run_single(
-            device=args.device,
-            out_dir=out_dir,
-            camera_role=args.camera_role,
-            width=args.width,
-            height=args.height,
-            fps=args.fps,
-            fourcc=args.fourcc,
-        )
-        return
-
-    main_device = args.main_device or args.deviceA
-    panel_device = args.panel_recog_device or args.deviceB
-    out_main = args.out_main if args.outA is None else args.outA
-    out_panel = args.out_panel_recog if args.outB is None else args.outB
-    width_main = args.width_main if args.widthA is None else args.widthA
-    height_main = args.height_main if args.heightA is None else args.heightA
-    fps_main = args.fps_main if args.fpsA is None else args.fpsA
-    fourcc_main = args.fourcc_main if args.fourccA is None else args.fourccA
-    width_panel = args.width_panel_recog if args.widthB is None else args.widthB
-    height_panel = args.height_panel_recog if args.heightB is None else args.heightB
-    fps_panel = args.fps_panel_recog if args.fpsB is None else args.fpsB
-    fourcc_panel = args.fourcc_panel_recog if args.fourccB is None else args.fourccB
-
-    # Common pair settings (from --width/--height/--fps/--fourcc).
-    # If per-camera values are omitted, apply common values to both.
-    if width_main is None:
-        width_main = args.width
-    if width_panel is None:
-        width_panel = args.width
-    if height_main is None:
-        height_main = args.height
-    if height_panel is None:
-        height_panel = args.height
-    if fps_main is None:
-        fps_main = args.fps
-    if fps_panel is None:
-        fps_panel = args.fps
-    if fourcc_main in (None, ""):
-        fourcc_main = args.fourcc
-    if fourcc_panel in (None, ""):
-        fourcc_panel = args.fourcc
+    width_main = pick_common_or_specific(args.width, args.width_main)
+    width_panel = pick_common_or_specific(args.width, args.width_panel_recog)
+    height_main = pick_common_or_specific(args.height, args.height_main)
+    height_panel = pick_common_or_specific(args.height, args.height_panel_recog)
+    fps_main = pick_common_or_specific(args.fps, args.fps_main)
+    fps_panel = pick_common_or_specific(args.fps, args.fps_panel_recog)
+    fourcc_main = pick_fourcc(args.fourcc, args.fourcc_main)
+    fourcc_panel = pick_fourcc(args.fourcc, args.fourcc_panel_recog)
 
     # This tool assumes both cameras use the same image size in pair mode.
     if width_main is not None and width_panel is not None and int(width_main) != int(width_panel):
@@ -242,14 +165,11 @@ def main() -> None:
             f"--height-main({height_main}) != --height-panel-recog({height_panel})"
         )
 
-    if not main_device or not panel_device:
-        ap.error("pair mode requires --main-device and --panel-recog-device")
-
     run_pair(
-        main_device=main_device,
-        panel_recog_device=panel_device,
-        out_main=out_main,
-        out_panel_recog=out_panel,
+        main_device=args.main_device,
+        panel_recog_device=args.panel_recog_device,
+        out_main=args.out_main,
+        out_panel_recog=args.out_panel_recog,
         width_main=width_main,
         height_main=height_main,
         fps_main=fps_main,

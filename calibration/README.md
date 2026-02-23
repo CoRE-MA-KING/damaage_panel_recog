@@ -5,21 +5,14 @@
 
 ## 1) 画像取得
 
-### 単体（内部パラメータ用）
+メインカメラと認識用カメラをケースに取り付けて同時に画像を撮影します。
 
 ```bash
-python3 calibration/capture_calib_images.py --mode single --device /dev/video4 --camera-role main_camera --out-dir calib/main_camera
-python3 calibration/capture_calib_images.py --mode single --device /dev/video6 --camera-role panel_recog_camera --out-dir calib/panel_recog_camera
+uv run python3 calibration/capture_calib_images.py --main-device /dev/video4 --panel-recog-device /dev/video6 --out-main calib/main_camera --out-panel-recog calib/panel_recog_camera --width 1280 --height 720
 ```
 
-### 同時（外部パラメータ用のペア画像）
-
-```bash
-python3 calibration/capture_calib_images.py --mode pair --main-device /dev/video4 --panel-recog-device /dev/video6 --out-main calib/main_camera --out-panel-recog calib/panel_recog_camera --width 1280 --height 720
-```
-
-`pair` モードでは `--width/--height` を両カメラ共通値として使えます。  
-`fps` は引数未指定時に両カメラともデフォルトで `30` が使われます。
+`--width/--height` は両カメラ共通値として使えます。  
+`fps` は引数未指定時に両カメラともデフォルトで `90` が使われます。
 
 ペア画像は次の名前で保存されます。
 
@@ -28,31 +21,26 @@ python3 calibration/capture_calib_images.py --mode pair --main-device /dev/video
 
 ## 2) 内部パラメータ推定
 
+メインカメラ側
+
 ```bash
-python3 calibration/calibrate_intrinsics.py --img-dir calib/main_camera --out calib/intrinsics_main_camera.yaml --board-cols 5 --board-rows 9 --square-size 0.005
-python3 calibration/calibrate_intrinsics.py --img-dir calib/panel_recog_camera --out calib/intrinsics_panel_recog_camera.yaml --board-cols 5 --board-rows 9 --square-size 0.05
+uv run python3 calibration/calibrate_intrinsics.py --img-dir calib/main_camera --out calib/intrinsics_main_camera.yaml --board-cols 5 --board-rows 9 --square-size 0.005
+```
+
+認識用カメラ側
+
+```bash
+uv run python3 calibration/calibrate_intrinsics.py --img-dir calib/panel_recog_camera --out calib/intrinsics_panel_recog_camera.yaml --board-cols 5 --board-rows 9 --square-size 0.05
 ```
 
 ## 3) 外部パラメータ推定
 
-### 理想モデル（PoC）
-
-基本的には使いませんが、取り付け位置が理想的な状態で実行してパラメータを作成します。
-
 ```bash
-python3 calibration/calibrate_extrinsics.py --mode ideal --baseline 0.35 --out calib/extrinsics_panel_recog_camera_to_main_camera.yaml
-```
-
-### ペア画像から推定（stereo）
-
-```bash
-python3 calibration/calibrate_extrinsics.py --mode stereo --dir-main calib/main_camera --dir-panel-recog calib/panel_recog_camera --intr-main calib/intrinsics_main_camera.yaml --intr-panel-recog calib/intrinsics_panel_recog_camera.yaml --out calib/extrinsics_panel_recog_camera_to_main_camera.yaml --board-cols 5 --board-rows 9 --square-size 0.05
+uv run python3 calibration/calibrate_extrinsics.py --dir-main calib/main_camera --dir-panel-recog calib/panel_recog_camera --intr-main calib/intrinsics_main_camera.yaml --intr-panel-recog calib/intrinsics_panel_recog_camera.yaml --out calib/extrinsics_panel_recog_camera_to_main_camera.yaml --board-cols 5 --board-rows 9 --square-size 0.05
 ```
 
 ## 4) 主なYAML命名例
 
 - `calib/intrinsics_main_camera.yaml`
-- `calib/intrinsics_main_camera_publish.yaml`（publish先用）
 - `calib/intrinsics_panel_recog_camera.yaml`
 - `calib/extrinsics_panel_recog_camera_to_main_camera.yaml`
-- `calib/extrinsics_panel_recog_camera_to_main_camera_publish.yaml`（publish先用）

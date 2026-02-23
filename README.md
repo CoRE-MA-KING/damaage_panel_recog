@@ -90,7 +90,7 @@ python3 damage_panel_recog_and_tracking.py --default-target red
 - publish先 `main_camera` の内部パラメータ
 - `panel_recog_camera -> main_camera` の外部パラメータ
 
-手順は `calibration/README.md` を参照してください。
+手順は [calibration/README.md](./calibration/README.md) を参照してください。
 
 - `calibration/README.md`
 - `calibration/checkerboard/README.md`（チェッカーボード表示手順）
@@ -107,14 +107,14 @@ python3 damage_panel_recog_and_tracking.py --default-target red
 ### 4-3. 座標変換有効で実行
 
 ```bash
-# 変換してpublish
+# 変換してpublish（変換しない場合は認識側カメラのピクセル値でpublish）
 python3 damage_panel_recog_and_tracking.py -p --coord-transform
 
 # main_camera重畳表示デバッグも有効
 python3 damage_panel_recog_and_tracking.py -p --coord-transform --main-overlay
 
 # デバッグ表示のmain_cameraデバイス指定
-python3 damage_panel_recog_and_tracking.py -p --coord-transform --main-overlay --main-camera-device /dev/video0
+python3 damage_panel_recog_and_tracking.py -p --coord-transform --main-overlay --main-camera-device /dev/video4
 ```
 
 ## 5. ログ取得（任意）

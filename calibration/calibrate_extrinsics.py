@@ -33,38 +33,6 @@ def save_extrinsics(path: str, R: np.ndarray, t: np.ndarray, rms: float = 0.0, n
     fs.release()
 
 
-def rot_x(rad: float) -> np.ndarray:
-    c, s = np.cos(rad), np.sin(rad)
-    return np.array([[1, 0, 0], [0, c, -s], [0, s, c]], dtype=np.float64)
-
-
-def rot_y(rad: float) -> np.ndarray:
-    c, s = np.cos(rad), np.sin(rad)
-    return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]], dtype=np.float64)
-
-
-def rot_z(rad: float) -> np.ndarray:
-    c, s = np.cos(rad), np.sin(rad)
-    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]], dtype=np.float64)
-
-
-def make_ideal_extrinsics(
-    baseline_m: float,
-    baseline_sign: int,
-    roll_deg: float,
-    pitch_deg: float,
-    yaw_deg: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    roll = np.deg2rad(roll_deg)
-    pitch = np.deg2rad(pitch_deg)
-    yaw = np.deg2rad(yaw_deg)
-
-    # panel_recog_camera -> main_camera rotation
-    R = rot_z(yaw) @ rot_y(pitch) @ rot_x(roll)
-    t = np.array([[0.0], [baseline_sign * baseline_m], [0.0]], dtype=np.float64)
-    return R, t
-
-
 def stereo_mode(args: argparse.Namespace) -> None:
     K_main, dist_main, size_main = load_intrinsics(args.intr_main)
     K_panel, dist_panel, size_panel = load_intrinsics(args.intr_panel_recog)
@@ -165,39 +133,10 @@ def stereo_mode(args: argparse.Namespace) -> None:
     print(f"saved panel_recog_camera->main_camera extrinsics: {args.out}")
 
 
-def ideal_mode(args: argparse.Namespace) -> None:
-    if args.baseline is None:
-        raise RuntimeError("--baseline is required in ideal mode.")
-    baseline_sign = +1 if args.baseline_sign >= 0 else -1
-    R, t = make_ideal_extrinsics(
-        baseline_m=args.baseline,
-        baseline_sign=baseline_sign,
-        roll_deg=args.roll,
-        pitch_deg=args.pitch,
-        yaw_deg=args.yaw,
-    )
-    note = (
-        "IDEAL model (no pair images). "
-        "panel_recog_camera->main_camera, OpenCV camera coordinates (x right, y down, z forward). "
-        f"t_y = baseline_sign({baseline_sign}) * baseline({args.baseline} m)."
-    )
-    save_extrinsics(args.out, R, t, rms=0.0, note=note)
-    print(f"saved IDEAL panel_recog_camera->main_camera extrinsics: {args.out}")
-    print("R:\n", R)
-    print("t:\n", t.ravel())
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["ideal", "stereo"], default="ideal")
+    ap.add_argument("--mode", choices=["stereo"], default="stereo", help=argparse.SUPPRESS)
     ap.add_argument("--out", default="calib/extrinsics_panel_recog_camera_to_main_camera.yaml")
-
-    # ideal
-    ap.add_argument("--baseline", type=float, default=None, help="Distance between camera centers [m]")
-    ap.add_argument("--baseline-sign", type=int, default=+1, help="+1 or -1 for t_y sign")
-    ap.add_argument("--roll", type=float, default=0.0)
-    ap.add_argument("--pitch", type=float, default=0.0)
-    ap.add_argument("--yaw", type=float, default=0.0)
 
     # stereo
     ap.add_argument("--dir-main", default="calib/main_camera")
@@ -214,7 +153,6 @@ def main() -> None:
     ap.add_argument("--dirB", default=None, help=argparse.SUPPRESS)
     ap.add_argument("--intrA", default=None, help=argparse.SUPPRESS)
     ap.add_argument("--intrB", default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--baseline_sign", dest="baseline_sign_compat", type=int, default=None, help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     if args.dirA:
@@ -225,13 +163,8 @@ def main() -> None:
         args.intr_main = args.intrA
     if args.intrB:
         args.intr_panel_recog = args.intrB
-    if args.baseline_sign_compat is not None:
-        args.baseline_sign = args.baseline_sign_compat
 
-    if args.mode == "ideal":
-        ideal_mode(args)
-    else:
-        stereo_mode(args)
+    stereo_mode(args)
 
 
 if __name__ == "__main__":
