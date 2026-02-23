@@ -33,32 +33,32 @@ mise build
 - Protobufコード生成（`buf generate`）
 - Python依存関係の同期（`uv sync`）
 
-uvコマンドを使わずに操作をしたい場合は、仮想環境を有効化してください。
+miseやuvコマンドを使わずに操作をしたい場合は、仮想環境を有効化してください。
 
 ```bash
 source .venv/bin/activate
 ```
 
-## 2. 最小実行（まず動作確認）
+## 2. 最小実行
 
 ```bash
-python3 damage_panel_recog_and_tracking.py
+mise start
 ```
 
 よく使うオプション:
 
 ```bash
 # デバイス指定
-python3 damage_panel_recog_and_tracking.py -d /dev/video0
+mise start -- -d /dev/video0
 
 # 画面表示なし
-python3 damage_panel_recog_and_tracking.py -n
+mise start -- -n
 
 # トラックバー設定UI
-python3 damage_panel_recog_and_tracking.py -s
+mise start -- -s
 
 # 設定ファイル指定
-python3 damage_panel_recog_and_tracking.py --config config/default.yaml
+mise start -- --config config/default.yaml
 ```
 
 ## 3. Zenoh publish / subscribe
@@ -69,13 +69,13 @@ python3 damage_panel_recog_and_tracking.py --config config/default.yaml
 
 ```bash
 # publish
-python3 damage_panel_recog_and_tracking.py -p
+mise start -- -p
 
 # subscribeでターゲット色を受信
-python3 damage_panel_recog_and_tracking.py --subscribe
+mise start -- --subscribe
 
 # subscribe無効時のデフォルト色上書き
-python3 damage_panel_recog_and_tracking.py --default-target red
+mise start -- --default-target red
 ```
 
 `publish` / `subscribe` のキーや有効/無効は `config/default.yaml` で管理します。
@@ -108,20 +108,20 @@ python3 damage_panel_recog_and_tracking.py --default-target red
 
 ```bash
 # 変換してpublish（変換しない場合は認識側カメラのピクセル値でpublish）
-python3 damage_panel_recog_and_tracking.py -p --coord-transform
+mise start -- -p --coord-transform
 
 # main_camera重畳表示デバッグも有効
-python3 damage_panel_recog_and_tracking.py -p --coord-transform --main-overlay
+mise start -- -p --coord-transform --main-overlay
 
 # デバッグ表示のmain_cameraデバイス指定
-python3 damage_panel_recog_and_tracking.py -p --coord-transform --main-overlay --main-camera-device /dev/video4
+mise start -- -p --coord-transform --main-overlay --main-camera-device /dev/video4
 ```
 
 ## 5. ログ取得（任意）
 
 ```bash
-python3 damage_panel_recog_and_tracking.py -l
-python3 damage_panel_recog_and_tracking.py -l --log-path logs/run1.csv
+mise start -- -l
+mise start -- -l --log-path logs/run1.csv
 ```
 
 ## 6. 補助READMEへのリンク
