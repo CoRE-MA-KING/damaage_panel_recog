@@ -287,27 +287,9 @@ def draw_projected_overlay(
     *,
     label: str = "projected panel",
 ) -> None:
-    text = "projection: no target"
-    if projected is None:
-        cv2.putText(frame_bgr, text, (20, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+    # Draw only a yellow projected bbox on main_camera debug view.
+    if projected is None or projected.bbox_xywh is None:
         return
 
-    u, v = projected.center_uv
-    if np.isfinite(u) and np.isfinite(v):
-        cv2.circle(frame_bgr, (int(round(u)), int(round(v))), 10, (0, 0, 255), 3)
-        cv2.putText(
-            frame_bgr,
-            label,
-            (int(round(u)) + 12, int(round(v)) - 12),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 0, 255),
-            2,
-        )
-
-    if projected.bbox_xywh is not None:
-        x, y, w, h = projected.bbox_xywh
-        cv2.rectangle(frame_bgr, (int(x), int(y)), (int(x + w), int(y + h)), (0, 255, 0), 2)
-
-    text = f"projection: Z={projected.depth_m:.3f}m span={projected.vertical_span_px:.1f}px"
-    cv2.putText(frame_bgr, text, (20, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    x, y, w, h = projected.bbox_xywh
+    cv2.rectangle(frame_bgr, (int(x), int(y)), (int(x + w), int(y + h)), (0, 255, 255), 2)
