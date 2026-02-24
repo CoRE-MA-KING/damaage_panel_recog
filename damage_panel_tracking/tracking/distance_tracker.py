@@ -91,13 +91,15 @@ def _xyxy_wh(box: np.ndarray) -> np.ndarray:
 
 
 def _scale_for_norm(wh: np.ndarray, normalize: str) -> float:
-    # 現在のbboxサイズから距離正規化スケールを決める。
+    # 距離dをd/scaleで正規化するため、現在bboxサイズから分母scaleを決める。
     w, h = float(wh[0]), float(wh[1])
     if normalize == "none":
+        # 正規化しない（px絶対距離をそのまま使う）。
         return 1.0
     if normalize == "sqrt_area":
+        # 面積の平方根で正規化し、物体サイズ差の影響を緩和する。
         return max(1.0, float(np.sqrt(max(1e-6, w * h))))
-    # 既定は対角長
+    # 既定は対角長で正規化し、見かけサイズに応じた相対距離として扱う。
     return max(1.0, float(np.sqrt(w * w + h * h)))
 
 
@@ -162,105 +164,165 @@ class DistanceTracker:
 
     def step(self, detections: List[Detection], dt: float) -> List[Track]:
         # 検出とtrackを対応付け、状態更新し、有効trackを出力する。
+        # dtを浮動小数へそろえる。
         dt = float(dt)
+        # 0除算回避のため最小値を設ける。
         dt = max(1e-6, dt)
 
+        # Detectionからbbox(xyxy)配列を取り出す。
         det_boxes = [d.box_xyxy.astype(float) for d in detections]
+        # 各検出bboxの中心座標を事前計算する。
         det_centers = [ _xyxy_center(b) for b in det_boxes ]
+        # 各検出bboxの幅・高さを事前計算する。
         det_wh = [ _xyxy_wh(b) for b in det_boxes ]
 
+        # 現在保持しているtrack数を得る（前stepの結果から決まる）
         n_trk = len(self._tracks)
+        # 今回フレームの検出数を得る。
         n_det = len(det_boxes)
 
         # コスト行列を構築する
+        # 無効対応に使う大きなコスト定数。
         invalid = 1e9
+        # まずは全要素を無効値で初期化する（shape: track数 x 検出数）。
         cost = np.full((n_trk, n_det), invalid, dtype=float)
 
+        # 各trackと各検出の対応コストを計算する。
         for i, tr in enumerate(self._tracks):
+            # 設定に応じて予測中心または現在中心を参照する。
+            # use_prediction:
+            #   True: 定速度モデル
+            #   False: 静止モデル
             tr_pred = tr.predict_center(dt) if self._cfg.use_prediction else tr.center
+            # 直近の観測中心（予測フォールバック用）。
             tr_last = tr.center
+            # 距離正規化に使うスケールを計算する。
             tr_scale = _scale_for_norm(tr.wh, self._cfg.normalize)
 
+            # このtrackに対する全検出候補を評価する。
             for j in range(n_det):
                 # 強い切り返しに備えて予測中心と直近中心の両方を候補にする
+                # 検出中心と予測中心のユークリッド距離。
                 d_pred = float(np.linalg.norm(det_centers[j] - tr_pred))
+                # 検出中心と直近中心のユークリッド距離。
                 d_last = float(np.linalg.norm(det_centers[j] - tr_last))
+                # 予測利用時は小さい方の距離を採用して頑健性を上げる。
                 d = min(d_pred, d_last) if self._cfg.use_prediction else d_last
 
+                # ゲート外（動きすぎ）は対応候補から除外する。
                 if d > float(self._cfg.gate_px):
                     continue
 
+                # bboxサイズ変化に対するペナルティを計算する。
                 sp = _size_penalty(tr.wh, det_wh[j])
+                # 最終コスト = 正規化距離 + サイズ差ペナルティ。
                 c = (d / tr_scale) + float(self._cfg.size_weight) * sp
+                # 有効な対応候補としてコスト行列へ格納する。
                 cost[i, j] = c
 
         # 対応付けを解く
+        # (track_index, detection_index) の対応結果を格納する。
         matches: List[Tuple[int, int]] = []
+        # track/検出がともに1件以上あるときだけ割当計算する。
         if n_trk > 0 and n_det > 0:
+            # SciPy利用可ならHungarian法で最適割当を解く。
             if self._use_scipy and self._linear_sum_assignment is not None:
                 row_ind, col_ind = self._linear_sum_assignment(cost)
+                # 無効コストでない割当だけを採用する。
                 for i, j in zip(row_ind.tolist(), col_ind.tolist()):
                     if float(cost[i, j]) < invalid:
                         matches.append((i, j))
             else:
+                # SciPyがない場合は貪欲法で近似割当する。
                 matches = _greedy_assignment(cost, invalid_cost=invalid)
 
+        # 対応済みtrackインデックス集合。
         matched_trk = {i for i, _ in matches}
+        # 対応済み検出インデックス集合。
         matched_det = {j for _, j in matches}
 
         # 対応が取れたtrackを更新する
+        # 割当済みペアごとにtrack状態を最新観測へ更新する。
         for i, j in matches:
             tr = self._tracks[i]
+            # 割り当てられた検出bbox。
             new_box = det_boxes[j]
+            # 割り当てられた検出中心。
             new_center = det_centers[j]
+            # 割り当てられた検出サイズ。
             new_wh = det_wh[j]
 
             # 速度更新(px/s)
+            # 中心位置差分から観測速度を計算する。
             meas_v = (new_center - tr.center) / dt
             # 速度クリップ
+            # 観測速度ノルムを計算する。
             spd = float(np.linalg.norm(meas_v))
+            # 設定された最大速度を取得する。
             max_spd = float(self._cfg.max_speed_px_s)
+            # 上限超過時は方向を保って速度ベクトルを縮小する。
             if spd > max_spd and spd > 1e-6:
                 meas_v = meas_v * (max_spd / spd)
 
+            # 速度更新のEMA係数を取得する。
             a = float(self._cfg.vel_alpha)
+            # 既存速度と観測速度をEMAで合成する。
             tr.vel = (1.0 - a) * tr.vel + a * meas_v
 
+            # 幾何状態を最新観測で更新する。
             tr.center = new_center
             tr.wh = new_wh
             tr.box = new_box
+            # 生存期間カウンタを進める。
             tr.age += 1
+            # 対応成功回数を増やす。
             tr.hits += 1
+            # 未検出カウンタをリセットする。
             tr.misses = 0
 
         # 未対応trackの予測/経時更新
+        # 生き残るtrackだけを詰める配列。
         survivors: List[_InternalTrack] = []
+        # 全trackを見て、対応済み/未対応で処理を分ける。
         for i, tr in enumerate(self._tracks):
+            # 対応済みtrackはそのまま残す。
             if i in matched_trk:
                 survivors.append(tr)
             else:
+                # 未対応trackはmiss処理（年齢更新・必要なら予測前進）を行う。
                 tr.mark_missed(dt=dt, use_prediction=self._cfg.use_prediction)
+                # miss上限以内なら一時的に保持する。
                 if tr.misses <= int(self._cfg.max_age):
                     survivors.append(tr)
                 # 期限超過は破棄する
 
+        # 生存track一覧を内部状態へ反映する。
         self._tracks = survivors
 
         # 未対応検出から新規trackを作る
+        # まだどのtrackにも割り当たっていない検出を新規track化する。
         for j in range(n_det):
             if j in matched_det:
                 continue
+            # 次の連番IDで内部trackを生成する。
             tr = _InternalTrack(self._next_id, det_boxes[j])
+            # 次回用のIDカウンタを進める。
             self._next_id += 1
+            # 内部track一覧へ追加する。
             self._tracks.append(tr)
 
         # 今ステップで更新され、十分成長したtrackのみ出力する
+        # 呼び出し側へ返す公開Trackリストを作る。
         out: List[Track] = []
+        # 内部trackを走査して出力条件を満たすものだけ返す。
         for tr in self._tracks:
+            # 今フレームで未対応のtrackは返さない。
             if tr.misses != 0:
                 continue
+            # 生成直後などヒット数不足のtrackは返さない。
             if tr.hits < int(self._cfg.min_steps_alive):
                 continue
+            # 外部公開用のTrackデータへ変換して追加する。
             out.append(
                 Track(
                     track_id=str(tr.id),

@@ -9,10 +9,22 @@ ColorName = Literal["blue", "red"]
 
 @dataclass(frozen=True)
 class PairMeta:
+    """同色の上下LEDペア1件を表す検出結果。
+
+    座標表現（情報としては同一）:
+    - xywh: (x, y, width, height)
+    - xyxy: (x1, y1, x2, y2)
+    """
+
+    # ペアの色ラベル（blue/red）。
     color: ColorName
+    # 上側LEDのbbox（xywh）。
     top_xywh: Tuple[int, int, int, int]
+    # 下側LEDのbbox（xywh）。
     bottom_xywh: Tuple[int, int, int, int]
+    # 上下LEDをまとめた外接bbox（xywh）。
     union_xywh: Tuple[int, int, int, int]
+    # 上下LEDをまとめた外接bbox（xyxy）。
     union_xyxy: np.ndarray  # 浮動小数のbbox座標 [x1,y1,x2,y2]
 
 

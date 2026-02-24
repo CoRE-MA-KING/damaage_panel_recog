@@ -261,10 +261,12 @@ def main() -> int:
 
         # メインループで取得・検出追跡・描画・必要ならpublishを行う。
         while True:
+            # フレーム取得
             ret, frame = cap.read()
             if not ret:
-                continue
+                continue            
 
+            # 座標変換セッションが有効な場合、デバッグ用main_cameraフレームを取得
             main_frame = None
             if transform_session is not None:
                 main_frame = transform_session.read_debug_main_frame()
@@ -272,19 +274,26 @@ def main() -> int:
             frame_idx += 1
 
             now = time.time()
+            # ゼロ除算を防ぐためにdtに最小値を設ける
             dt = max(1e-6, now - last_t)
             last_t = now
             inst_fps = 1.0 / dt
             fps = alpha * inst_fps + (1.0 - alpha) * fps
 
+            # 現在のターゲット色（blue/red）をスレッドセーフに取得する。
             target_color = target_color_state.get()
+            # 前フレーム時点からターゲット色が切り替わったか確認する。
             if target_color != last_target_color:
+                # 比較基準を最新の色に更新する。
                 last_target_color = target_color
+                # 追跡機能が有効なときのみトラッカーを再初期化する。
                 if cfg["tracking"]["enabled"]:
                     try:
+                        # 色切替後の誤対応を避けるため、トラッカー内部状態をリセットする。
                         tracker = build_tracker(cfg["tracking"], fps=float(cfg["camera"]["capture"]["fps"]))
                         print(f"[INFO] tracker reset: target color switched to {target_color}")
                     except Exception as e:
+                        # 再初期化に失敗した場合は追跡を一時無効化する。
                         print(f"[WARN] tracker reset failed: {e}")
                         tracker = None
 

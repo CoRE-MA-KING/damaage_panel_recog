@@ -52,15 +52,23 @@ def pairs_from_frame(frame_bgr: np.ndarray, det_cfg: Dict[str, Any]) -> List[Pai
             pairs.append(build_pair_meta(color=color, top=top, bottom=bottom))
     return pairs
 
-
-def detections_from_pairs(pairs: List[PairMeta], frame_shape: Tuple[int, int, int]) -> List[Detection]:
-    # ペア検出を面積ベースの簡易scoreつきでtracker入力へ変換する。
+# ペア検出を面積ベースの簡易scoreつきでtracker入力へ変換する。
+def detections_from_pairs(pairs: List[PairMeta], frame_shape: Tuple[int, int, int]) -> List[Detection]:    
+    # フレーム形状から高さ・幅を取り出す（shapeはH,W,Cの順）。
     h, w = frame_shape[0], frame_shape[1]
+    # 返却用のDetectionリストを初期化する。
     detections: List[Detection] = []
+    # 1ペアずつtracker入力形式へ変換する。
     for p in pairs:
+        # 統合bbox（xywh）から幅・高さだけ取り出す。
         _, _, uw, uh = p.union_xywh
+        
+        # 画面の1/8面積を基準にヒューリスティックで正規化し（値が小さくなりすぎるのを抑える）、
+        # 加えて、+0.1の下駄を履かせた簡易scoreを1.0でクリップする。
         score = min(1.0, (uw * uh) / (w * h / 8.0) + 0.1)
+        # tracker入力形式（xyxy, score, class_id）で追加する。class_idは現状単一クラスなので0固定（将来拡張用）。
         detections.append(Detection(box_xyxy=p.union_xyxy, score=float(score), class_id=0))
+    # 変換後のDetection一覧を返す。
     return detections
 
 
@@ -72,8 +80,10 @@ def filter_pairs_by_color(pairs: List[PairMeta], target_color: ColorName) -> Lis
 def select_target_pair(pairs: List[PairMeta], frame_w: int, frame_h: int) -> Tuple[Tuple[int, int], PairMeta | None]:
     # 画像中心に対してx方向で最も近い検出を選ぶ。
     cx0 = frame_w / 2.0
+    # フレーム中心を理想の座標と置く
     best_xy = (int(frame_w / 2), int(frame_h / 2))
     best_abs = float("inf")
+    # 理想的なターゲットの座標情報を決定する
     best_pair: PairMeta | None = None
     for p in pairs:
         cx, cy = xyxy_center(p.union_xyxy)
@@ -154,16 +164,18 @@ def process_frame(
 ) -> FrameResult:
     # 1フレーム分の検出/追跡を実行し、publish対象座標を決定する。
     pairs = pairs_from_frame(frame_bgr, det_cfg)
-    frame_h, frame_w = frame_bgr.shape[0], frame_bgr.shape[1]
     target_pairs = filter_pairs_by_color(pairs, target_color)
-
+    frame_h, frame_w = frame_bgr.shape[0], frame_bgr.shape[1]
     target, selected_pair = select_target_pair(target_pairs, frame_w=frame_w, frame_h=frame_h)
+    
     selected_track: Track | None = None
     tracks: List[Track] = []
     chosen_from_tracks = False
 
     if tracking_cfg["enabled"] and tracker is not None:
+        # トラッキングに渡す形式にデータを加工（スコアとして、bboxサイズをヒューリスティックに正規化）
         detections = detections_from_pairs(target_pairs, frame_bgr.shape)
+        
         tracks = tracker.step(detections, dt=dt)
         if len(detections) > 0 and len(tracks) > 0:
             target, selected_track = select_target_track(tracks, frame_w=frame_w, frame_h=frame_h)
