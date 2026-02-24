@@ -8,6 +8,7 @@ from typing import Any
 
 def dev_to_path(dev: Any) -> str:
     """Normalize device spec (0, '0', '/dev/video0') to '/dev/videoX' for v4l2-ctl."""
+    # 複数のデバイス表記を標準的なv4l2パスにそろえる。
     if isinstance(dev, int):
         return f"/dev/video{dev}"
     if isinstance(dev, str):
@@ -20,11 +21,13 @@ def dev_to_path(dev: Any) -> str:
 
 
 def has_v4l2_ctl() -> bool:
+    # この環境でv4l2-ctlが利用可能か確認する。
     return shutil.which("v4l2-ctl") is not None
 
 
 def v4l2_set(dev_path: str, name: str, value: Any) -> bool:
     """Set a V4L2 control. Returns True on success, False otherwise."""
+    # v4l2-ctlで1つのカメラ制御をベストエフォートで適用する。
     if not dev_path or not has_v4l2_ctl():
         return False
     try:

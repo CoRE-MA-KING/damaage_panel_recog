@@ -35,6 +35,7 @@ class ProjectedPanel:
 
 
 def _fs_read_mat(fs: cv2.FileStorage, key: str) -> np.ndarray:
+    # OpenCV YAMLから1つの行列ノードを読み込む。
     node = fs.getNode(key)
     if node.empty():
         raise RuntimeError(f"YAML missing key: {key}")
@@ -45,6 +46,7 @@ def _fs_read_mat(fs: cv2.FileStorage, key: str) -> np.ndarray:
 
 
 def parse_size(value: Any) -> tuple[int, int] | None:
+    # "WxH" 文字列または2要素配列からフレームサイズを解釈する。
     if value is None:
         return None
     if isinstance(value, (tuple, list)) and len(value) == 2:
@@ -61,6 +63,7 @@ def parse_size(value: Any) -> tuple[int, int] | None:
 
 
 def load_intrinsics(path: str) -> IntrinsicsData:
+    # YAMLから内部パラメータ（K, dist, 任意でwidth/height）を読み込む。
     fs = cv2.FileStorage(path, cv2.FILE_STORAGE_READ)
     if not fs.isOpened():
         raise RuntimeError(f"Failed to open intrinsics: {path}")
@@ -83,6 +86,7 @@ def load_intrinsics(path: str) -> IntrinsicsData:
 
 
 def load_extrinsics(path: str) -> tuple[np.ndarray, np.ndarray]:
+    # YAMLからpanel->mainの外部パラメータ（R, t）を読み込む。
     fs = cv2.FileStorage(path, cv2.FILE_STORAGE_READ)
     if not fs.isOpened():
         raise RuntimeError(f"Failed to open extrinsics: {path}")
@@ -95,6 +99,7 @@ def load_extrinsics(path: str) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _resolve_calib_size(intr: IntrinsicsData, explicit_size: tuple[int, int] | None, *, label: str) -> tuple[int, int]:
+    # キャリブ画像サイズを設定値またはYAMLメタデータから解決する。
     size = explicit_size or intr.size
     if size is None:
         raise RuntimeError(
@@ -105,6 +110,7 @@ def _resolve_calib_size(intr: IntrinsicsData, explicit_size: tuple[int, int] | N
 
 
 def scale_K(K: np.ndarray, from_size: tuple[int, int], to_size: tuple[int, int]) -> np.ndarray:
+    # 実行時解像度に合わせて内部行列Kをスケーリングする。
     fw, fh = from_size
     tw, th = to_size
     sx = tw / float(fw)
@@ -128,6 +134,7 @@ def build_projection_model(
     panel_calib_size: tuple[int, int] | None = None,
     main_calib_size: tuple[int, int] | None = None,
 ) -> ProjectionModel:
+    # キャリブファイルと実行時サイズから投影モデルを構築する。
     panel_intr = load_intrinsics(panel_intrinsics_path)
     main_intr = load_intrinsics(main_intrinsics_path)
 
@@ -158,11 +165,13 @@ def build_projection_model(
 
 
 def _center_from_xywh(box_xywh: tuple[int, int, int, int]) -> tuple[float, float]:
+    # bbox座標から中心点を算出する。
     x, y, w, h = box_xywh
     return x + w / 2.0, y + h / 2.0
 
 
 def _estimate_depth_from_vertical(top_xy: tuple[float, float], bottom_xy: tuple[float, float], fy_px: float, span_m: float) -> tuple[float, float] | None:
+    # 観測された上下LED間隔と実寸スパンから奥行きを推定する。
     h_px = float(np.hypot(top_xy[0] - bottom_xy[0], top_xy[1] - bottom_xy[1]))
     if h_px < 1.0:
         return None
@@ -171,6 +180,7 @@ def _estimate_depth_from_vertical(top_xy: tuple[float, float], bottom_xy: tuple[
 
 
 def _backproject_pixel_to_3d(u: float, v: float, Z: float, K: np.ndarray) -> np.ndarray:
+    # 1画素を深度Z平面上の3D点へ逆投影する。
     fx = float(K[0, 0])
     fy = float(K[1, 1])
     cx = float(K[0, 2])
@@ -181,6 +191,7 @@ def _backproject_pixel_to_3d(u: float, v: float, Z: float, K: np.ndarray) -> np.
 
 
 def _project_3d_to_pixel(P: np.ndarray, K: np.ndarray) -> tuple[float, float] | None:
+    # 3D点を1台のカメラ画素座標へ投影する。
     X, Y, Z = float(P[0, 0]), float(P[1, 0]), float(P[2, 0])
     if Z <= 1e-6:
         return None
@@ -194,6 +205,7 @@ def _project_3d_to_pixel(P: np.ndarray, K: np.ndarray) -> tuple[float, float] | 
 
 
 def project_pair_to_main_camera(pair: PairMeta, model: ProjectionModel) -> ProjectedPanel | None:
+    # 認識カメラの検出ペアをmain_camera画素座標へ投影する。
     top_center = _center_from_xywh(pair.top_xywh)
     bottom_center = _center_from_xywh(pair.bottom_xywh)
 
@@ -252,6 +264,7 @@ def projected_to_publish_payload(
     *,
     main_frame_size: tuple[int, int],
 ) -> tuple[bool, int, int, int, int, int]:
+    # 投影結果を境界チェック済みpublish payloadへ変換する。
     if projected is None:
         return (False, 0, 0, 0, 0, 0)
 
@@ -287,7 +300,7 @@ def draw_projected_overlay(
     *,
     label: str = "projected panel",
 ) -> None:
-    # Draw only a yellow projected bbox on main_camera debug view.
+    # デバッグ用mainカメラ画像に投影bboxを描画する。
     if projected is None or projected.bbox_xywh is None:
         return
 

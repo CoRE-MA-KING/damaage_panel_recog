@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-
+# YAML/CLIの上書きを適用する前に使う基準設定。
 DEFAULTS: Dict[str, Any] = {
     "camera": {
         "device": "/dev/video0",
@@ -39,7 +39,7 @@ DEFAULTS: Dict[str, Any] = {
     },
     "tracking": {
         "enabled": False,
-        "backend": "motpy",  # motpy | distance | noop (future: sort)
+        "backend": "motpy",  # motpy | distance | noop（将来的にsort）
         "min_steps_alive": 2,
         "history_len": 20,
         "color_bgr": [0, 255, 255],
@@ -66,7 +66,7 @@ DEFAULTS: Dict[str, Any] = {
     "publish": {
         "enabled": False,
         "publish_key": "damagepanel/target",
-        "max_hz": 0.0,  # <= 0 means unlimited
+        "max_hz": 0.0,  # <= 0 なら無制限
         "drop_if_congested": True,
         "express": True,
     },
@@ -81,7 +81,7 @@ DEFAULTS: Dict[str, Any] = {
     },
     "coordinate_transform": {
         "enabled": False,
-        # Vertical span between top/bottom LED centers [m].
+        # 上下LED中心間の実寸スパン[m]。
         "panel_vertical_span_m": 0.180,
         "panel_recog_camera": {
             "intrinsics_path": "calib/intrinsics_panel_recog_camera.yaml",

@@ -19,12 +19,14 @@ from .projection import (
 
 
 def _normalize_device_arg(dev: Any) -> Any:
+    # 数字文字列のデバイス指定を整数インデックスへ変換する。
     if isinstance(dev, str) and dev.isdigit():
         return int(dev)
     return dev
 
 
 def _parse_optional_size(value: Any, *, field_name: str) -> tuple[int, int] | None:
+    # サイズ設定を解釈し、エラー時に設定項目名を付与する。
     try:
         return parse_size(value)
     except ValueError as e:
@@ -32,6 +34,7 @@ def _parse_optional_size(value: Any, *, field_name: str) -> tuple[int, int] | No
 
 
 def _read_first_frame(cap: cv2.VideoCapture, *, camera_label: str) -> np.ndarray:
+    # 読み取り可能な最初のフレームが来るまで待機する。
     attempts = 0
     while True:
         ok, frame = cap.read()
@@ -59,6 +62,7 @@ class TransformSession:
         panel_frame_size: tuple[int, int],
         do_display: bool,
     ) -> TransformSession:
+        # 投影モデルと、必要ならデバッグ用mainカメラを初期化する。
         enabled = bool(transform_cfg.get("enabled", False))
         debug_overlay_cfg = transform_cfg.get("debug_overlay", {})
         debug_overlay_enabled = bool(debug_overlay_cfg.get("enabled", False))
@@ -188,6 +192,7 @@ class TransformSession:
         )
 
     def read_debug_main_frame(self) -> np.ndarray | None:
+        # 初回はキャッシュ済みフレームを返し、以後は通常読み取りを行う。
         if self.debug_main_cap is None:
             return None
         if self._next_debug_main_frame is not None:
@@ -203,6 +208,7 @@ class TransformSession:
         self,
         selected_pair: PairMeta | None,
     ) -> tuple[ProjectedPanel | None, ProjectedPanel | None]:
+        # 選択されたパネルペアをpublish/デバッグ各カメラ座標へ投影する。
         publish_projected: ProjectedPanel | None = None
         debug_projected: ProjectedPanel | None = None
         if selected_pair is None:
@@ -215,5 +221,6 @@ class TransformSession:
         return publish_projected, debug_projected
 
     def close(self) -> None:
+        # 開いていればデバッグ用mainカメラを解放する。
         if self.debug_main_cap is not None:
             self.debug_main_cap.release()

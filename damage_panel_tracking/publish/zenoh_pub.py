@@ -13,6 +13,7 @@ class ZenohSession:
     """Small wrapper to keep zenoh usage isolated."""
 
     def __init__(self) -> None:
+        # roboapp設定ファイルを使ってzenohセッションを開く。
         try:
             import zenoh  # type: ignore
         except Exception as e:
@@ -37,6 +38,7 @@ class ZenohSession:
         drop_if_congested: bool = False,
         express: bool = False,
     ) -> None:
+        # 混雑制御/低遅延オプション付きでpublisherを宣言する。
         kwargs: dict[str, Any] = {}
         if drop_if_congested:
             kwargs["congestion_control"] = self._zenoh.CongestionControl.DROP
@@ -45,9 +47,11 @@ class ZenohSession:
         self._pub[key] = self._session.declare_publisher(key, **kwargs)
 
     def create_subscriber(self, key: str, callback: Callable[[Any], None]) -> None:
+        # subscriberを宣言し、ハンドルを保持して生存させる。
         self._sub.append(self._session.declare_subscriber(key, callback))
 
     def put(self, key: str, payload: Message) -> None:
+        # 対象keyが登録済みならprotobufバイト列をpublishする。
         if key in self._pub:
             self._pub[key].put(payload.SerializeToString())
 
@@ -62,6 +66,7 @@ _STOP_TOKEN = ("__STOP__",)
 
 
 def _build_payload_from_payload(payload_data: tuple[bool, int, int, int, int, int]) -> Message:
+    # tuple payloadを検証済みDamagePanelTarget protobufへ変換する。
     from msg import DamagePanelTargetMessage, Target
     from protovalidate import validate
 
@@ -90,6 +95,7 @@ def _publisher_process_main(
     drop_if_congested: bool,
     express: bool,
 ) -> None:
+    # 子プロセスでレート制限しつつ最新payloadのみpublishする。
     session: ZenohSession | None = None
     interval_sec = (1.0 / max_hz) if max_hz > 0.0 else 0.0
     last_pub_t = 0.0
@@ -113,7 +119,7 @@ def _publisher_process_main(
         if item == _STOP_TOKEN:
             break
 
-        # Keep only the latest payload waiting in the pipe.
+        # Pipe内に滞留しているpayloadは最新1件だけ残す。
         while recv_conn.poll():
             try:
                 newer = recv_conn.recv()
@@ -160,6 +166,7 @@ class LatestFramePublisher:
         express: bool = True,
         max_hz: float = 0.0,
     ) -> None:
+        # 最新のみpublishする専用プロセスを起動する。
         self._ctx = mp.get_context("spawn")
         self._recv_conn, self._send_conn = self._ctx.Pipe(duplex=False)
         try:
@@ -182,12 +189,14 @@ class LatestFramePublisher:
         self._proc.start()
 
     def _put_latest(self, payload_data: Any) -> None:
+        # 子プロセスへベストエフォートで非ブロッキング送信する。
         try:
             self._send_conn.send(payload_data)
         except (BlockingIOError, BrokenPipeError, EOFError, OSError):
             pass
 
     def submit(self, payload_data: tuple[bool, int, int, int, int, int]) -> None:
+        # プロセスが健全ならpayloadを1件投入する。
         if self._closed:
             return
         if not self._proc.is_alive():
@@ -195,6 +204,7 @@ class LatestFramePublisher:
         self._put_latest(payload_data)
 
     def close(self) -> None:
+        # 子プロセスを停止し、IPCリソースを解放する。
         if self._closed:
             return
         self._closed = True

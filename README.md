@@ -24,6 +24,7 @@
 リポジトリルート（この `README.md` があるディレクトリ）で実行します。
 
 ```bash
+git submodule update --init --recursive
 mise install
 mise build
 ```

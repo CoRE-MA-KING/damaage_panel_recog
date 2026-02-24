@@ -8,7 +8,7 @@ import numpy as np
 @dataclass(frozen=True)
 class Detection:
     """Detection input for trackers (bbox only, no pixels)."""
-    box_xyxy: np.ndarray  # float (x1,y1,x2,y2)
+    box_xyxy: np.ndarray  # 浮動小数のbbox座標 (x1,y1,x2,y2)
     score: float = 1.0
     class_id: int = 0
 
@@ -17,12 +17,14 @@ class Detection:
 class Track:
     """Tracker output."""
     track_id: str
-    box_xyxy: np.ndarray  # float
+    box_xyxy: np.ndarray  # 浮動小数のbbox座標
     age: int
     hits: int
 
 
 class MultiObjectTracker(Protocol):
     """Interface to allow swapping motpy with your own SORT implementation later."""
+
     def step(self, detections: List[Detection], dt: float) -> List[Track]:
+        # 1フレーム分トラッカー状態を進め、現在有効なtrackを返す。
         ...

@@ -8,6 +8,7 @@ from typing import Any, List, Tuple
 
 def default_motion_log_path(prefix_dir: str = "logs", basename_prefix: str = "motion_log") -> str:
     """Return default CSV log path like `logs/motion_log_YYYYmmdd_HHMMSS.csv`."""
+    # タイムスタンプ付きログファイル名を作る。
     ts = time.strftime("%Y%m%d_%H%M%S")
     return os.path.join(prefix_dir, f"{basename_prefix}_{ts}.csv")
 
@@ -31,6 +32,7 @@ class MotionLogger:
     """
 
     def __init__(self, path: str, flush_every: int = 60) -> None:
+        # CSV writerを開き、集計状態を初期化する。
         self.path = path
         self.flush_every = max(1, int(flush_every))
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -74,6 +76,7 @@ class MotionLogger:
         xy: Tuple[int, int] | None,
         wh: Tuple[int, int] | None,
     ) -> None:
+        # 1フレーム分を追記し、可能なら移動差分を算出する。
         if xy is None:
             x = y = None
         else:
@@ -119,6 +122,7 @@ class MotionLogger:
             self.flush()
 
     def flush(self) -> None:
+        # バッファ行をディスクへ書き出す。
         if not self._buf:
             return
         self._wr.writerows(self._buf)
@@ -126,12 +130,14 @@ class MotionLogger:
         self._fp.flush()
 
     def close(self) -> None:
+        # 未書き出し行をflushしてファイルを閉じる。
         try:
             self.flush()
         finally:
             self._fp.close()
 
     def summary_text(self) -> str:
+        # 実行中に収集した移動統計の要約を返す。
         if self._count <= 0:
             return "(no valid motion samples)"
         mean_speed = self._sum_speed / float(self._count)

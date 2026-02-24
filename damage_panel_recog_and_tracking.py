@@ -10,4 +10,5 @@ without touching the detection / camera / UI code.
 from damage_panel_tracking.cli import main
 
 if __name__ == "__main__":
+    # パッケージ側のCLIエントリポイントへ起動を委譲する。
     raise SystemExit(main())

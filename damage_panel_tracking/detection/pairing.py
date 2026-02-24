@@ -6,6 +6,7 @@ from .types import PairMeta, xywh_to_xyxy
 
 
 def horiz_overlap_ratio(b1: Tuple[int, int, int, int], b2: Tuple[int, int, int, int]) -> float:
+    # 狭い方の幅を基準に水平重なり率を計算する。
     x1, _, w1, _ = b1
     x2, _, w2, _ = b2
     left = max(x1, x2)
@@ -21,7 +22,8 @@ def pair_boxes_same_color(
     min_h_overlap: float,
     min_v_gap: int,
 ) -> List[Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int]]]:
-    boxes_sorted = sorted(boxes_xywh, key=lambda b: b[1])  # y asc
+    # 幾何条件を使って同色の上/下ボックスをペア化する。
+    boxes_sorted = sorted(boxes_xywh, key=lambda b: b[1])  # y昇順
     paired: List[Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int]]] = []
     used_bottom = set()
 
@@ -51,6 +53,7 @@ def pair_boxes_same_color(
 
 
 def union_bbox(top: Tuple[int, int, int, int], bottom: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
+    # 上下LEDボックスを内包する統合bboxを作る。
     x1, y1, w1, h1 = top
     x2, y2, w2, h2 = bottom
     x_min = min(x1, x2)
@@ -65,9 +68,10 @@ def build_pair_meta(
     top: Tuple[int, int, int, int],
     bottom: Tuple[int, int, int, int],
 ) -> PairMeta:
+    # パイプライン全体で使う標準のペアメタデータを構築する。
     u = union_bbox(top, bottom)
     return PairMeta(
-        color=color,  # type: ignore
+        color=color,  # 型上はColorNameを想定
         top_xywh=top,
         bottom_xywh=bottom,
         union_xywh=u,

@@ -26,12 +26,14 @@ class FrameResult:
 
 
 def normalize_device_arg(dev: Any) -> Any:
+    # 数字文字列のデバイス指定を整数インデックスへ変換する。
     if isinstance(dev, str) and dev.isdigit():
         return int(dev)
     return dev
 
 
 def pairs_from_frame(frame_bgr: np.ndarray, det_cfg: Dict[str, Any]) -> List[PairMeta]:
+    # 赤/青LED領域を検出し、同色の上下LEDをペア化する。
     hsv_cfg = det_cfg["hsv"]
     kernel_sz = int(det_cfg["kernel_sz"])
     min_box_w = int(det_cfg["min_box_w"])
@@ -52,6 +54,7 @@ def pairs_from_frame(frame_bgr: np.ndarray, det_cfg: Dict[str, Any]) -> List[Pai
 
 
 def detections_from_pairs(pairs: List[PairMeta], frame_shape: Tuple[int, int, int]) -> List[Detection]:
+    # ペア検出を面積ベースの簡易scoreつきでtracker入力へ変換する。
     h, w = frame_shape[0], frame_shape[1]
     detections: List[Detection] = []
     for p in pairs:
@@ -62,10 +65,12 @@ def detections_from_pairs(pairs: List[PairMeta], frame_shape: Tuple[int, int, in
 
 
 def filter_pairs_by_color(pairs: List[PairMeta], target_color: ColorName) -> List[PairMeta]:
+    # 現在のターゲット色に一致するペアだけを残す。
     return [p for p in pairs if p.color == target_color]
 
 
 def select_target_pair(pairs: List[PairMeta], frame_w: int, frame_h: int) -> Tuple[Tuple[int, int], PairMeta | None]:
+    # 画像中心に対してx方向で最も近い検出を選ぶ。
     cx0 = frame_w / 2.0
     best_xy = (int(frame_w / 2), int(frame_h / 2))
     best_abs = float("inf")
@@ -81,6 +86,7 @@ def select_target_pair(pairs: List[PairMeta], frame_w: int, frame_h: int) -> Tup
 
 
 def select_target_track(tracks: List[Track], frame_w: int, frame_h: int) -> Tuple[Tuple[int, int], Track | None]:
+    # 画像中心に対してx方向で最も近い追跡対象を選ぶ。
     cx0 = frame_w / 2.0
     best_xy = (int(frame_w / 2), int(frame_h / 2))
     best_abs = float("inf")
@@ -96,6 +102,7 @@ def select_target_track(tracks: List[Track], frame_w: int, frame_h: int) -> Tupl
 
 
 def build_tracker(track_cfg: Dict[str, Any], fps: float) -> MultiObjectTracker:
+    # 設定に従って追跡バックエンドを生成する。
     backend = str(track_cfg.get("backend", "motpy")).lower()
     if backend == "noop":
         return NoopTracker()
@@ -145,6 +152,7 @@ def process_frame(
     dt: float,
     target_color: ColorName,
 ) -> FrameResult:
+    # 1フレーム分の検出/追跡を実行し、publish対象座標を決定する。
     pairs = pairs_from_frame(frame_bgr, det_cfg)
     frame_h, frame_w = frame_bgr.shape[0], frame_bgr.shape[1]
     target_pairs = filter_pairs_by_color(pairs, target_color)

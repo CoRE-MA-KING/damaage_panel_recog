@@ -41,14 +41,17 @@ VALID_TARGET_COLORS: tuple[ColorName, ColorName] = ("blue", "red")
 
 class TargetColorState:
     def __init__(self, initial: ColorName) -> None:
+        # subscribeコールバックから安全に参照できるよう色状態をロック付きで保持する。
         self._color = initial
         self._lock = threading.Lock()
 
     def get(self) -> ColorName:
+        # ターゲット色を排他的に読み取る。
         with self._lock:
             return self._color
 
     def set(self, next_color: ColorName) -> bool:
+        # ターゲット色を排他的に更新し、変更有無を返す。
         with self._lock:
             if self._color == next_color:
                 return False
@@ -57,6 +60,7 @@ class TargetColorState:
 
 
 def _normalize_target_color(value: Any, *, source: str) -> ColorName:
+    # ターゲット色を検証し、サポート値へ正規化する。
     color = str(value).strip().lower()
     if color not in VALID_TARGET_COLORS:
         raise ValueError(f"{source} must be one of {VALID_TARGET_COLORS}: got {value!r}")
@@ -66,6 +70,7 @@ def _normalize_target_color(value: Any, *, source: str) -> ColorName:
 
 
 def parse_args() -> argparse.Namespace:
+    # CLIオプションを定義して実行時引数を解釈する。
     ap = argparse.ArgumentParser()
     ap.add_argument("-p", "--publish", action="store_true", help="Zenohにpublishする")
     ap.add_argument("--publish-max-hz", default=None, type=float, help="publishの最大レート(Hz)。0以下で無制限")
@@ -86,6 +91,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def _apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> None:
+    # 実行初期化前にCLI上書きを適用し、設定値を正規化する。
     if args.device is not None:
         cfg["camera"]["device"] = args.device
 
@@ -126,6 +132,7 @@ def _apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> None:
 
 
 def _read_first_frame(cap: cv2.VideoCapture, *, camera_label: str) -> Any:
+    # 有効な最初の1フレームが取得できるまで待機する。
     attempts = 0
     while True:
         ok, frame = cap.read()
@@ -138,6 +145,7 @@ def _read_first_frame(cap: cv2.VideoCapture, *, camera_label: str) -> Any:
 
 
 def main() -> int:
+    # 入力を解釈し、実効設定（defaults <- file <- CLI）を組み立てる。
     args = parse_args()
 
     override = load_config(args.config) if args.config else {}
@@ -148,6 +156,7 @@ def main() -> int:
         print(f"[ERROR] {e}")
         return 2
 
+    # 表示/GUIの動作を確定し、認識カメラを開く。
     do_display = not bool(args.no_display)
     use_gui = bool(args.setting) and do_display
 
@@ -156,6 +165,7 @@ def main() -> int:
     device = normalize_device_arg(cfg["camera"]["device"])
     cap, dev_path = setup_camera(device, cfg["camera"]["capture"], cfg["camera"]["init_controls"])
 
+    # 表示ウィンドウと任意の調整用GUIを準備する。
     win_name = str(cfg["ui"]["window_name"])
     if do_display or use_gui:
         cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
@@ -163,6 +173,7 @@ def main() -> int:
     if use_gui:
         create_setting_gui(win_name, dev_path, cfg["detection"]["hsv"], cfg["camera"]["init_controls"])
 
+    # 確定済み設定からpublish/subscribe用の実行パラメータを取り出す。
     publish_enabled = bool(cfg["publish"]["enabled"])
     subscribe_enabled = bool(cfg["subscribe"]["enabled"])
     publish_key = str(cfg["publish"]["publish_key"])
@@ -174,6 +185,7 @@ def main() -> int:
     if not subscribe_enabled:
         print(f"[INFO] subscribe disabled: target color={target_color_state.get()}")
 
+    # try/finally前にランタイムハンドルを安全な初期値で用意する。
     session: ZenohSession | None = None
     latest_publisher: LatestFramePublisher | None = None
     motion_logger = None
@@ -181,10 +193,12 @@ def main() -> int:
     viz = TrackVizState(history_len=int(cfg["tracking"]["history_len"]))
     transform_session: TransformSession | None = None
 
+    # 実際にネゴシエーションされた結果の画像サイズを得る（設定値通りに起動できたとは限らないため）
     next_panel_frame = _read_first_frame(cap, camera_label="panel_recog_camera")
     panel_frame_size = (int(next_panel_frame.shape[1]), int(next_panel_frame.shape[0]))
 
     try:
+        # publish有効時は非同期publisherプロセスを起動する。
         if publish_enabled:
             latest_publisher = LatestFramePublisher(
                 key=publish_key,
@@ -197,6 +211,7 @@ def main() -> int:
             else:
                 print(f"[INFO] publish async(process) enabled: key={publish_key} max_hz=unlimited")
 
+        # subscribeコールバックを開始し、ターゲット色を動的更新できるようにする。
         if subscribe_enabled:
             session = ZenohSession()
 
@@ -216,6 +231,7 @@ def main() -> int:
 
             session.create_subscriber(subscribe_key, _on_color_message)
 
+        # 任意機能（ログ/追跡/座標変換）を初期化する。
         motion_logger = create_motion_logger(cfg.get("logging", {}))
 
         if cfg["tracking"]["enabled"]:
@@ -235,6 +251,7 @@ def main() -> int:
             print(f"[ERROR] coordinate transform init failed: {e}")
             return 2
 
+        # FPS計算状態とループ内カウンタを初期化する。
         last_t = time.time()
         fps = 0.0
         alpha = float(cfg["ui"].get("fps_ema_alpha", 0.2))
@@ -242,6 +259,7 @@ def main() -> int:
         frame_idx = 0
         last_target_color = target_color_state.get()
 
+        # メインループで取得・検出追跡・描画・必要ならpublishを行う。
         while True:
             if next_panel_frame is not None:
                 frame = next_panel_frame
@@ -274,6 +292,7 @@ def main() -> int:
                         print(f"[WARN] tracker reset failed: {e}")
                         tracker = None
 
+            # 現在のターゲット色で1フレーム分の検出/追跡を実行する。
             frame_result = process_frame(
                 frame_bgr=frame,
                 det_cfg=cfg["detection"],
@@ -283,11 +302,13 @@ def main() -> int:
                 target_color=target_color,
             )
 
+            # 座標変換有効時は選択ペアをmain_camera座標へ投影する。
             publish_projected = None
             debug_projected = None
             if transform_session is not None:
                 publish_projected, debug_projected = transform_session.project_selected_pair(frame_result.selected_pair)
 
+            # ログ有効時はモーションサンプルを1行追記する。
             log_motion_sample(
                 motion_logger=motion_logger,
                 frame_idx=frame_idx,
@@ -296,6 +317,7 @@ def main() -> int:
                 result=frame_result,
             )
 
+            # パネル/デバッグ画面を描画し、終了キー入力を処理する。
             should_quit = False
             if do_display:
                 if transform_session is not None and transform_session.debug_main_cap is not None:
@@ -333,6 +355,7 @@ def main() -> int:
             if should_quit:
                 break
 
+            # 最新ターゲットpayloadを非同期プロセスへ渡してpublishする。
             if publish_enabled and latest_publisher is not None:
                 payload = result_to_publish_payload(frame_result)
                 if transform_session is not None and transform_session.publish_model is not None:
@@ -342,6 +365,7 @@ def main() -> int:
                     )
                 latest_publisher.submit(payload)
 
+    # 例外時も含めて全リソースを確実にクローズする。
     finally:
         close_motion_logger(motion_logger)
         if latest_publisher is not None:

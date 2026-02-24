@@ -9,6 +9,7 @@ from .v4l2ctl import dev_to_path, v4l2_set
 
 
 def _prefer_v4l2_backend(device: Any) -> bool:
+    # Linuxカメラデバイス指定時はCAP_V4L2を優先する。
     if isinstance(device, int):
         return True
     if isinstance(device, str) and device.startswith("/dev/video"):
@@ -18,6 +19,7 @@ def _prefer_v4l2_backend(device: Any) -> bool:
 
 def _open_capture(device: Any) -> cv2.VideoCapture:
     """Prefer V4L2 for Linux camera devices, then fall back to default backend."""
+    # バックエンドのフォールバック戦略つきでカメラを開く。
     if _prefer_v4l2_backend(device):
         cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
         if cap.isOpened():
@@ -30,6 +32,7 @@ def _open_capture(device: Any) -> cv2.VideoCapture:
 
 
 def _fourcc_to_str(v: float) -> str:
+    # OpenCVのFOURCC整数値を可読なコーデック文字列へ変換する。
     iv = int(v)
     if iv <= 0:
         return "N/A"
@@ -37,6 +40,7 @@ def _fourcc_to_str(v: float) -> str:
 
 
 def setup_camera(device: Any, capture_cfg: Dict[str, Any], init_ctrls: Dict[str, Any]) -> Tuple[cv2.VideoCapture, str]:
+    # カメラを開き、キャプチャ形式を要求し、起動時制御を適用する。
     cap = _open_capture(device)
 
     fourcc = str(capture_cfg.get("fourcc", "MJPG"))
@@ -79,7 +83,7 @@ def setup_camera(device: Any, capture_cfg: Dict[str, Any], init_ctrls: Dict[str,
 def apply_camera_init(dev_path: str, cap: cv2.VideoCapture, init_ctrls: Dict[str, Any]) -> None:
     """Apply camera init controls once at startup."""
 
-    # Order-sensitive controls first
+    # 順序依存のある制御を先に適用する。
     if "auto_exposure" in init_ctrls:
         v4l2_set(dev_path, "auto_exposure", init_ctrls["auto_exposure"])
     if "white_balance_automatic" in init_ctrls:
@@ -87,13 +91,13 @@ def apply_camera_init(dev_path: str, cap: cv2.VideoCapture, init_ctrls: Dict[str
     if "focus_automatic_continuous" in init_ctrls:
         v4l2_set(dev_path, "focus_automatic_continuous", init_ctrls["focus_automatic_continuous"])
 
-    # Apply rest
+    # 残りの制御を適用する。
     for k, v in init_ctrls.items():
         if k in ("auto_exposure", "white_balance_automatic", "focus_automatic_continuous"):
             continue
         v4l2_set(dev_path, k, v)
 
-    # Fallback (best-effort)
+    # v4l2制御が使えない場合はOpenCVプロパティへフォールバックする。
     try:
         if "brightness" in init_ctrls:
             cap.set(cv2.CAP_PROP_BRIGHTNESS, float(init_ctrls["brightness"]))

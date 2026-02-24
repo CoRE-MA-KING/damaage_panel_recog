@@ -11,13 +11,14 @@ def create_setting_gui(win_name: str, dev_path: str, hsv_cfg: Dict[str, Any], in
     """Create OpenCV trackbars to update v4l2 controls and HSV thresholds."""
 
     def tb_set_v4l2(ctrl_name: str, minv: int = 0) -> Callable[[int], None]:
+        # トラックバー変更値をv4l2制御と設定へ反映するコールバックを作る。
         def _f(v: int) -> None:
             val = int(v) + int(minv)
             v4l2_set(dev_path, ctrl_name, val)
             init_ctrls[ctrl_name] = val
         return _f
 
-    # Camera controls (only if present in config)
+    # カメラ制御（設定に存在する項目のみ）
     if "exposure_time_absolute" in init_ctrls:
         cv2.createTrackbar("ExposureAbs", win_name, int(init_ctrls["exposure_time_absolute"]), 10000, tb_set_v4l2("exposure_time_absolute", 0))
     if "gain" in init_ctrls:
@@ -39,6 +40,7 @@ def create_setting_gui(win_name: str, dev_path: str, hsv_cfg: Dict[str, Any], in
 
     # HSV blue
     def bset(name: str):
+        # blue閾値をその場で更新するコールバックを作る。
         return lambda v: hsv_cfg["blue"].__setitem__(name, int(v))
 
     cv2.createTrackbar("B_H_low", win_name, int(hsv_cfg["blue"]["H_low"]), 179, bset("H_low"))
@@ -50,12 +52,15 @@ def create_setting_gui(win_name: str, dev_path: str, hsv_cfg: Dict[str, Any], in
 
     # HSV red
     def r1set(name: str):
+        # red1色相レンジ更新コールバックを作る。
         return lambda v: hsv_cfg["red1"].__setitem__(name, int(v))
 
     def r2set(name: str):
+        # red2色相レンジ更新コールバックを作る。
         return lambda v: hsv_cfg["red2"].__setitem__(name, int(v))
 
     def rsvset(name: str):
+        # red共通の彩度/明度レンジ更新コールバックを作る。
         return lambda v: hsv_cfg["redSV"].__setitem__(name, int(v))
 
     cv2.createTrackbar("R1_H_low", win_name, int(hsv_cfg["red1"]["H_low"]), 179, r1set("H_low"))
