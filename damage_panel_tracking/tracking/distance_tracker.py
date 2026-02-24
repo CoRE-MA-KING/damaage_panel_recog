@@ -106,9 +106,10 @@ def _scale_for_norm(wh: np.ndarray, normalize: str) -> float:
 def _size_penalty(track_wh: np.ndarray, det_wh: np.ndarray) -> float:
     # 急なbboxサイズ変化にペナルティを与えて誤対応を抑える。
     # penalty = |log(w2/w1)| + |log(h2/h1)|
-    eps = 1e-6
+    eps = 1e-6  # 0除算を防ぐために小さい値を加算
     w1, h1 = float(track_wh[0]) + eps, float(track_wh[1]) + eps
     w2, h2 = float(det_wh[0]) + eps, float(det_wh[1]) + eps
+    # logで評価することで逆数の関係でも同様に比較可能
     return abs(np.log(w2 / w1)) + abs(np.log(h2 / h1))
 
 
@@ -162,6 +163,7 @@ class DistanceTracker:
         except Exception:
             self._linear_sum_assignment = None
 
+    # 1枚のフレームに対して処理開始
     def step(self, detections: List[Detection], dt: float) -> List[Track]:
         # 検出とtrackを対応付け、状態更新し、有効trackを出力する。
         # dtを浮動小数へそろえる。
@@ -173,7 +175,7 @@ class DistanceTracker:
         det_boxes = [d.box_xyxy.astype(float) for d in detections]
         # 各検出bboxの中心座標を事前計算する。
         det_centers = [ _xyxy_center(b) for b in det_boxes ]
-        # 各検出bboxの幅・高さを事前計算する。
+        # 各検出bboxの幅・高さを事前計算する。結局ここで得るなら準備段階での変換は冗長か？
         det_wh = [ _xyxy_wh(b) for b in det_boxes ]
 
         # 現在保持しているtrack数を得る（前stepの結果から決まる）
@@ -188,15 +190,16 @@ class DistanceTracker:
         cost = np.full((n_trk, n_det), invalid, dtype=float)
 
         # 各trackと各検出の対応コストを計算する。
+        # track: 前回終了時の生き残ったbbox
         for i, tr in enumerate(self._tracks):
             # 設定に応じて予測中心または現在中心を参照する。
             # use_prediction:
             #   True: 定速度モデル
             #   False: 静止モデル
             tr_pred = tr.predict_center(dt) if self._cfg.use_prediction else tr.center
-            # 直近の観測中心（予測フォールバック用）。
+            # 直近の観測中心（切り返しの可能性を考慮した予測位置として現在の位置も保持）。
             tr_last = tr.center
-            # 距離正規化に使うスケールを計算する。
+            # 距離正規化に使うスケールを計算する。bboxのサイズによって移動距離の価値が違う点を吸収
             tr_scale = _scale_for_norm(tr.wh, self._cfg.normalize)
 
             # このtrackに対する全検出候補を評価する。
@@ -206,7 +209,7 @@ class DistanceTracker:
                 d_pred = float(np.linalg.norm(det_centers[j] - tr_pred))
                 # 検出中心と直近中心のユークリッド距離。
                 d_last = float(np.linalg.norm(det_centers[j] - tr_last))
-                # 予測利用時は小さい方の距離を採用して頑健性を上げる。
+                # 予測利用時は小さい方の距離を採用して頑健性を上げる（それ以外は強制的に静止モデル）
                 d = min(d_pred, d_last) if self._cfg.use_prediction else d_last
 
                 # ゲート外（動きすぎ）は対応候補から除外する。
@@ -215,9 +218,14 @@ class DistanceTracker:
 
                 # bboxサイズ変化に対するペナルティを計算する。
                 sp = _size_penalty(tr.wh, det_wh[j])
-                # 最終コスト = 正規化距離 + サイズ差ペナルティ。
-                c = (d / tr_scale) + float(self._cfg.size_weight) * sp
-                # 有効な対応候補としてコスト行列へ格納する。
+                # 距離項: bboxサイズで正規化した中心距離。
+                d_norm = d / tr_scale
+                # サイズ項: サイズ差ペナルティに重みを掛けた値。
+                size_pen = float(self._cfg.size_weight) * sp
+                # 最終コスト = 距離項 + サイズ項。
+                c = d_norm + size_pen
+                # 有効な対応候補としてコスト行列へ格納する
+                # 行:tack, 列:detection
                 cost[i, j] = c
 
         # 対応付けを解く
@@ -225,7 +233,7 @@ class DistanceTracker:
         matches: List[Tuple[int, int]] = []
         # track/検出がともに1件以上あるときだけ割当計算する。
         if n_trk > 0 and n_det > 0:
-            # SciPy利用可ならHungarian法で最適割当を解く。
+            # SciPy利用可ならHungarian法で最適割当を解く（全コストの合計が最小値となる組み合わせ）
             if self._use_scipy and self._linear_sum_assignment is not None:
                 row_ind, col_ind = self._linear_sum_assignment(cost)
                 # 無効コストでない割当だけを採用する。
@@ -243,13 +251,15 @@ class DistanceTracker:
 
         # 対応が取れたtrackを更新する
         # 割当済みペアごとにtrack状態を最新観測へ更新する。
+        # i=track index(int), j=detection index(int)
         for i, j in matches:
+            # 更新対象の内部track状態(_InternalTrack)。
             tr = self._tracks[i]
-            # 割り当てられた検出bbox。
+            # 割り当てられた検出bbox(np.ndarray[float], xyxy)。
             new_box = det_boxes[j]
-            # 割り当てられた検出中心。
+            # 割り当てられた検出中心(np.ndarray[float], [cx, cy])。
             new_center = det_centers[j]
-            # 割り当てられた検出サイズ。
+            # 割り当てられた検出サイズ(np.ndarray[float], [w, h])。
             new_wh = det_wh[j]
 
             # 速度更新(px/s)
@@ -260,13 +270,13 @@ class DistanceTracker:
             spd = float(np.linalg.norm(meas_v))
             # 設定された最大速度を取得する。
             max_spd = float(self._cfg.max_speed_px_s)
-            # 上限超過時は方向を保って速度ベクトルを縮小する。
+            # 上限超過時は方向を保って速度ベクトルを縮小する。これはなんのため？
             if spd > max_spd and spd > 1e-6:
                 meas_v = meas_v * (max_spd / spd)
 
             # 速度更新のEMA係数を取得する。
             a = float(self._cfg.vel_alpha)
-            # 既存速度と観測速度をEMAで合成する。
+            # 既存速度と観測速度をEMAで合成する。つまりローパスフィルタに該当する？
             tr.vel = (1.0 - a) * tr.vel + a * meas_v
 
             # 幾何状態を最新観測で更新する。
