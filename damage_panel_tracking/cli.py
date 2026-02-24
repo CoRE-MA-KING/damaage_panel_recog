@@ -193,9 +193,9 @@ def main() -> int:
     viz = TrackVizState(history_len=int(cfg["tracking"]["history_len"]))
     transform_session: TransformSession | None = None
 
-    # 実際にネゴシエーションされた結果の画像サイズを得る（設定値通りに起動できたとは限らないため）
-    next_panel_frame = _read_first_frame(cap, camera_label="panel_recog_camera")
-    panel_frame_size = (int(next_panel_frame.shape[1]), int(next_panel_frame.shape[0]))
+    # 実際にネゴシエーションされた結果の画像サイズを得る（サイズ取得専用）
+    negotiated_panel_frame = _read_first_frame(cap, camera_label="panel_recog_camera")
+    panel_frame_size = (int(negotiated_panel_frame.shape[1]), int(negotiated_panel_frame.shape[0]))
 
     try:
         # publish有効時は非同期publisherプロセスを起動する。
@@ -261,13 +261,9 @@ def main() -> int:
 
         # メインループで取得・検出追跡・描画・必要ならpublishを行う。
         while True:
-            if next_panel_frame is not None:
-                frame = next_panel_frame
-                next_panel_frame = None
-            else:
-                ret, frame = cap.read()
-                if not ret:
-                    continue
+            ret, frame = cap.read()
+            if not ret:
+                continue
 
             main_frame = None
             if transform_session is not None:
