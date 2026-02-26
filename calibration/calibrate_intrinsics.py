@@ -11,6 +11,28 @@ import cv2
 import numpy as np
 
 
+def _insert_yaml_comments(path: str, comment_lines: list[str]) -> None:
+    # YAMLヘッダ直後に短い説明コメントブロックを挿入する。
+    with open(path, "r", encoding="utf-8") as f:
+        raw = f.read()
+
+    marker = "# スキーマ: camera_intrinsics_v1"
+    if marker in raw:
+        return
+
+    lines = raw.splitlines(keepends=True)
+    insert_idx = 0
+    for i, line in enumerate(lines):
+        if line.strip() == "---":
+            insert_idx = i + 1
+            break
+
+    block = "".join(("#\n" if not line else f"# {line}\n") for line in comment_lines)
+    out = "".join(lines[:insert_idx] + [block] + lines[insert_idx:])
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(out)
+
+
 def save_intrinsics(path: str, K: np.ndarray, dist: np.ndarray, image_size: tuple[int, int], rms: float) -> None:
     fs = cv2.FileStorage(path, cv2.FILE_STORAGE_WRITE)
     fs.write("K", K)
@@ -19,6 +41,16 @@ def save_intrinsics(path: str, K: np.ndarray, dist: np.ndarray, image_size: tupl
     fs.write("height", int(image_size[1]))
     fs.write("rms", float(rms))
     fs.release()
+    _insert_yaml_comments(
+        path,
+        [
+            "スキーマ: camera_intrinsics_v1",
+            "K: 3x3のカメラ内部行列（画素単位）[fx 0 cx; 0 fy cy; 0 0 1]。",
+            "dist: OpenCVのレンズ歪み係数（k1, k2, p1, p2, k3, ...）。",
+            "width,height: 内部パラメータ推定に使ったキャリブ画像サイズ。",
+            "rms: 再投影誤差のRMSE [px]（一般に小さいほど良い）。",
+        ],
+    )
 
 
 def main() -> None:

@@ -276,7 +276,7 @@ class DistanceTracker:
 
             # 速度更新のEMA係数を取得する。
             a = float(self._cfg.vel_alpha)
-            # 既存速度と観測速度をEMAで合成する。つまりローパスフィルタに該当する？
+            # 既存速度と観測速度をEMAで合成する。一時IIRのローパスフィルタで速度更新
             tr.vel = (1.0 - a) * tr.vel + a * meas_v
 
             # 幾何状態を最新観測で更新する。

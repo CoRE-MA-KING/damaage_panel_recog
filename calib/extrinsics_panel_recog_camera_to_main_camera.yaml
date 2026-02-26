@@ -1,5 +1,11 @@
 %YAML:1.0
 ---
+# スキーマ: camera_extrinsics_v1
+# 座標系規約: P_main = R * P_panel + t。
+# R: panel_recog_camera座標系からmain_camera座標系への3x3回転行列。
+# t: panel_recog_camera原点からmain_camera原点への3x1並進ベクトル。
+# tの単位: キャリブ時の --square-size と同じ（通常はメートル）。
+# rms: ステレオキャリブレーションの再投影RMSE [px]。
 R: !!opencv-matrix
    rows: 3
    cols: 3

@@ -11,6 +11,28 @@ import cv2
 import numpy as np
 
 
+def _insert_yaml_comments(path: str, comment_lines: list[str]) -> None:
+    # YAMLヘッダ直後に短い説明コメントブロックを挿入する。
+    with open(path, "r", encoding="utf-8") as f:
+        raw = f.read()
+
+    marker = "# スキーマ: camera_extrinsics_v1"
+    if marker in raw:
+        return
+
+    lines = raw.splitlines(keepends=True)
+    insert_idx = 0
+    for i, line in enumerate(lines):
+        if line.strip() == "---":
+            insert_idx = i + 1
+            break
+
+    block = "".join(("#\n" if not line else f"# {line}\n") for line in comment_lines)
+    out = "".join(lines[:insert_idx] + [block] + lines[insert_idx:])
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(out)
+
+
 def load_intrinsics(path: str) -> tuple[np.ndarray, np.ndarray, tuple[int, int]]:
     fs = cv2.FileStorage(path, cv2.FILE_STORAGE_READ)
     if not fs.isOpened():
@@ -31,6 +53,17 @@ def save_extrinsics(path: str, R: np.ndarray, t: np.ndarray, rms: float = 0.0, n
     if note:
         fs.write("note", note)
     fs.release()
+    _insert_yaml_comments(
+        path,
+        [
+            "スキーマ: camera_extrinsics_v1",
+            "座標系規約: P_main = R * P_panel + t。",
+            "R: panel_recog_camera座標系からmain_camera座標系への3x3回転行列。",
+            "t: panel_recog_camera原点からmain_camera原点への3x1並進ベクトル。",
+            "tの単位: キャリブ時の --square-size と同じ（通常はメートル）。",
+            "rms: ステレオキャリブレーションの再投影RMSE [px]。",
+        ],
+    )
 
 
 def stereo_mode(args: argparse.Namespace) -> None:
