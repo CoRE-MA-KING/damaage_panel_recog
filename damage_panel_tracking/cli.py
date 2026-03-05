@@ -6,7 +6,13 @@ import threading
 import time
 from typing import Any, Dict
 
+from .ui.qt_compat import configure_qt_fontdir
+
+configure_qt_fontdir()
+
 import cv2
+
+configure_qt_fontdir()
 
 from msg import (
     DamagePanelColorMessage,
