@@ -7,6 +7,7 @@ from pathlib import Path
 
 def _deep_update(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
     """Recursively merge src into dst (in place) and return dst."""
+    # 指定されていない既定キーを保持したままネスト辞書をマージする。
     for k, v in src.items():
         if isinstance(v, dict) and isinstance(dst.get(k), dict):
             _deep_update(dst[k], v)
@@ -24,6 +25,7 @@ def load_config(path: str | Path | None) -> Dict[str, Any]:
     If path is None, returns an empty dict (caller merges defaults).
     """
     if path is None:
+        # 上書きファイルがなければ既定値のみを使う。
         return {}
 
     p = Path(path)
@@ -31,6 +33,7 @@ def load_config(path: str | Path | None) -> Dict[str, Any]:
         raise FileNotFoundError(f"Config not found: {p}")
 
     if p.suffix.lower() in (".yaml", ".yml"):
+        # YAML設定を辞書形式の上書き設定として読み込む。
         try:
             import yaml  # type: ignore
         except Exception as e:
@@ -48,6 +51,7 @@ def load_config(path: str | Path | None) -> Dict[str, Any]:
 
 def build_effective_config(defaults: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     """Return merged config = defaults <- override."""
-    merged = json.loads(json.dumps(defaults))  # deep copy via json
+    # in-placeマージで既定値定数を壊さないよう先にdeep copyする。
+    merged = json.loads(json.dumps(defaults))  # json経由でdeep copy
     _deep_update(merged, override)
     return merged

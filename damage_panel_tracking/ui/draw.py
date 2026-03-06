@@ -10,10 +10,12 @@ from ..tracking.base import Track
 
 
 def put_text(img, text: str, org: Tuple[int, int], scale=0.6, color=(255, 255, 255), thickness=1) -> None:
+    # アンチエイリアス付きで補助テキストを描画する。
     cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
 
 
 def draw_detection_pair(img, meta: PairMeta) -> None:
+    # 上下LEDボックス、統合ボックス、中心マーカーを描画する。
     box_col = (255, 0, 0) if meta.color == "blue" else (0, 0, 255)
     for (x, y, w, h) in (meta.top_xywh, meta.bottom_xywh):
         cv2.rectangle(img, (x, y), (x + w, y + h), box_col, 2)
@@ -34,6 +36,7 @@ def draw_detection_pair(img, meta: PairMeta) -> None:
 
 
 def associate_tracks_to_pairs(tracks: List[Track], pairs: List[PairMeta], iou_thresh: float = 0.1) -> Dict[str, int]:
+    # 各trackを最も重なる検出ペアへ対応付ける。
     mapping: Dict[str, int] = {}
     for t in tracks:
         best_i, best_iou = -1, 0.0
@@ -49,23 +52,27 @@ def associate_tracks_to_pairs(tracks: List[Track], pairs: List[PairMeta], iou_th
 
 class TrackVizState:
     def __init__(self, history_len: int = 20):
+        # 軌跡描画履歴と表示用の安定IDを保持する。
         self.history_len = int(history_len)
         self._hist: Dict[str, collections.deque] = {}
         self._alias: Dict[str, int] = {}
         self._next_alias = 1
 
     def alias(self, track_id: str) -> int:
+        # 表示用に安定した短い数値IDを返す。
         if track_id not in self._alias:
             self._alias[track_id] = self._next_alias
             self._next_alias += 1
         return self._alias[track_id]
 
     def push(self, track_id: str, cx: int, cy: int) -> None:
+        # track履歴へ中心点を1件追加する。
         if track_id not in self._hist:
             self._hist[track_id] = collections.deque(maxlen=self.history_len)
         self._hist[track_id].append((cx, cy))
 
     def get(self, track_id: str):
+        # 指定trackの履歴点を取得する。
         return list(self._hist.get(track_id, []))
 
 
@@ -76,6 +83,7 @@ def draw_tracks(
     track_color=(0, 255, 255),
     history: Optional[TrackVizState] = None,
 ) -> None:
+    # 追跡bbox、ID、軌跡、対応するLEDボックスを描画する。
     assoc = associate_tracks_to_pairs(tracks, pairs, iou_thresh=0.1)
 
     for t in tracks:
@@ -102,6 +110,7 @@ def draw_tracks(
 
 
 def draw_target(img, target_xy: Tuple[int, int], from_tracks: bool) -> None:
+    # 最終選択ターゲットのマーカーと座標を描画する。
     tx, ty = target_xy
     col = (255, 255, 0) if from_tracks else (255, 255, 255)
     cv2.drawMarker(img, (int(tx), int(ty)), col, markerType=cv2.MARKER_CROSS, markerSize=16, thickness=2)
@@ -109,6 +118,7 @@ def draw_target(img, target_xy: Tuple[int, int], from_tracks: bool) -> None:
 
 
 def draw_fps(img, fps: float) -> None:
+    # 右上にFPS表示を描画する。
     text = f"FPS: {fps:.1f}"
     (tw, _), _2 = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
     x_right = img.shape[1] - tw - 10
@@ -117,4 +127,5 @@ def draw_fps(img, fps: float) -> None:
 
 
 def draw_mode(img, mode: str) -> None:
+    # 現在の追跡モード表示を描画する。
     put_text(img, mode, (10, 50), 0.6, (200, 200, 200), 1)

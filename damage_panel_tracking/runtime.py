@@ -24,6 +24,7 @@ PublishPayload = tuple[bool, int, int, int, int, int]
 
 
 def create_motion_logger(logging_cfg: Dict[str, Any]) -> MotionLogger | None:
+    # ログ有効時のみCSVモーションロガーを生成する。
     if not logging_cfg.get("enabled", False):
         return None
 
@@ -41,6 +42,7 @@ def log_motion_sample(
     dt: float,
     result: FrameResult,
 ) -> None:
+    # 1フレーム分のターゲット/追跡状態をCSVへ記録する。
     if motion_logger is None:
         return
 
@@ -80,7 +82,9 @@ def render_frame(
     history: TrackVizState,
     fps: float,
     win_name: str,
+    poll_key: bool = True,
 ) -> bool:
+    # 現在の検出/追跡/テレメトリを描画し、終了要求を返す。
     if not tracking_enabled or not tracker_available:
         for pair in result.pairs:
             draw_detection_pair(frame, pair)
@@ -104,10 +108,13 @@ def render_frame(
     draw_fps(frame, fps)
 
     cv2.imshow(win_name, frame)
+    if not poll_key:
+        return False
     return bool(cv2.waitKey(1) & 0xFF == ord("q"))
 
 
 def _extract_target_values(result: FrameResult) -> tuple[int, int, int, int, int] | None:
+    # 現在のターゲット（追跡/検出）をpublish用のスカラ値へ変換する。
     target_values: tuple[int, int, int, int, int] | None = None
 
     if result.chosen_from_tracks and result.selected_track is not None:
@@ -136,6 +143,7 @@ def _extract_target_values(result: FrameResult) -> tuple[int, int, int, int, int
 
 
 def result_to_publish_payload(result: FrameResult) -> PublishPayload:
+    # 非同期publisher向けのコンパクトなtuple payloadを作る。
     target_values = _extract_target_values(result)
     if target_values is None:
         return (False, 0, 0, 0, 0, 0)
@@ -144,6 +152,7 @@ def result_to_publish_payload(result: FrameResult) -> PublishPayload:
 
 
 def result_to_target(result: FrameResult) -> DamagePanelTargetMessage:
+    # 直接publish経路向けに検証済みprotobufメッセージを作る。
     try:
         target_values = _extract_target_values(result)
         if target_values is not None:
@@ -164,6 +173,7 @@ def result_to_target(result: FrameResult) -> DamagePanelTargetMessage:
 
 
 def close_motion_logger(motion_logger: MotionLogger | None) -> None:
+    # 終了時にロガーを安全にflush/closeする。
     if motion_logger is None:
         return
     try:
@@ -176,6 +186,7 @@ def close_motion_logger(motion_logger: MotionLogger | None) -> None:
 
 
 def close_publisher(session: ZenohSession | None) -> None:
+    # 終了時にzenoh sessionを安全にクローズする。
     if session is None:
         return
     try:

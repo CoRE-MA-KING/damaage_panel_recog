@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Checkerboard (mm-accurate) for Camera Calibration</title>
+  <style>
+    :root{
+      --bg: #111;
+      --panel-bg: rgba(0,0,0,0.65);
+      --panel-fg: #eee;
+      --accent: #7fd3ff;
+      --sq: 40px;
+      --gridline: rgba(0,0,0,0.0);
+    }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      overflow: hidden;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Noto Sans JP", sans-serif;
+      color: #eee;
+    }
+
+    /* Stage occupies full screen */
+    #stage {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      user-select: none;
+    }
+
+    /* Checkerboard wrapper (allows offset) */
+    #boardWrap {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      will-change: transform;
+    }
+
+    /* Checkerboard itself */
+    #board {
+      display: grid;
+      background: #fff;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.45);
+      outline: 8px solid #fff; /* white margin around */
+      outline-offset: 0px;
+    }
+    .cell {
+      width: var(--sq);
+      height: var(--sq);
+      box-sizing: border-box;
+      border: 1px solid var(--gridline);
+      background: #fff;
+    }
+    .black { background: #000; }
+    .white { background: #fff; }
+
+    /* Optional crosshair/center marker */
+    #centerMark {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.5);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      display: none;
+    }
+
+    /* Rulers */
+    #rulers {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+    }
+    .ruler {
+      position: absolute;
+      background: rgba(255,255,255,0.0);
+      color: rgba(255,255,255,0.9);
+      font-size: 14px;
+      letter-spacing: 0.2px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    }
+    #rulerH {
+      left: 24px;
+      top: 24px;
+      height: 40px;
+    }
+    #rulerV {
+      left: 24px;
+      top: 24px;
+      width: 40px;
+    }
+    .tick {
+      position: absolute;
+      background: rgba(255,255,255,0.85);
+    }
+    .label {
+      position: absolute;
+      top: 18px;
+      left: 0;
+      white-space: nowrap;
+    }
+    .labelV {
+      position: absolute;
+      left: 12px;
+      top: 0;
+      transform-origin: left top;
+      transform: rotate(90deg);
+      white-space: nowrap;
+    }
+
+    /* Control panel */
+    #panel {
+      position: fixed;
+      left: 12px;
+      bottom: 12px;
+      width: min(520px, calc(100vw - 24px));
+      background: var(--panel-bg);
+      color: var(--panel-fg);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 14px;
+      padding: 14px 14px 10px 14px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    }
+    #panel h1 {
+      margin: 0 0 8px 0;
+      font-size: 16px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    #panel h1 span.badge {
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(127,211,255,0.15);
+      border: 1px solid rgba(127,211,255,0.3);
+      color: var(--accent);
+      font-weight: 700;
+    }
+    #gridForm {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 12px;
+      align-items: end;
+    }
+    .field label {
+      display: block;
+      font-size: 12px;
+      opacity: 0.9;
+      margin-bottom: 4px;
+    }
+    .field input, .field select {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(0,0,0,0.35);
+      color: #fff;
+      outline: none;
+      font-size: 14px;
+    }
+    .row {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 6px;
+    }
+    button {
+      padding: 9px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(127,211,255,0.18);
+      color: #fff;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    button.secondary {
+      background: rgba(255,255,255,0.08);
+      font-weight: 600;
+    }
+    button:active {
+      transform: translateY(1px);
+    }
+    #info {
+      margin-top: 10px;
+      font-size: 12px;
+      line-height: 1.35;
+      opacity: 0.95;
+    }
+    #info code { color: var(--accent); }
+    #hint {
+      margin-top: 8px;
+      font-size: 12px;
+      opacity: 0.85;
+    }
+
+    /* Top-right mini status */
+    #status {
+      position: fixed;
+      right: 12px;
+      top: 12px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.35;
+      backdrop-filter: blur(6px);
+      max-width: min(420px, calc(100vw - 24px));
+    }
+    #status b { color: var(--accent); }
+
+    /* Hide panel */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <div id="boardWrap">
+      <div id="board" aria-label="checkerboard"></div>
+    </div>
+
+    <div id="centerMark"></div>
+
+    <div id="rulers">
+      <div id="rulerH" class="ruler"></div>
+      <div id="rulerV" class="ruler"></div>
+    </div>
+
+    <div id="status"></div>
+
+    <div id="panel">
+      <h1>
+        Checkerboard for Calibration
+        <span class="badge">mm adjustable</span>
+      </h1>
+
+      <div id="gridForm">
+        <div class="field">
+          <label>Display width (mm)</label>
+          <input id="dispWmm" type="number" step="0.1" value="1650.0">
+        </div>
+        <div class="field">
+          <label>Display height (mm)</label>
+          <input id="dispHmm" type="number" step="0.1" value="928.0">
+        </div>
+        <div class="field">
+          <label>Display width (px)</label>
+          <input id="dispWpx" type="number" step="1" value="3840">
+        </div>
+        <div class="field">
+          <label>Display height (px)</label>
+          <input id="dispHpx" type="number" step="1" value="2160">
+        </div>
+
+        <div class="field">
+          <label>Cell size (mm)</label>
+          <input id="cellMm" type="number" step="0.1" value="186.0">
+        </div>
+        <div class="field">
+          <label>Scale (fine tune)</label>
+          <input id="scale" type="number" step="0.001" value="1.000">
+        </div>
+
+        <div class="field">
+          <label>Inner corners X</label>
+          <input id="innerX" type="number" step="1" value="7" min="2" max="30">
+        </div>
+        <div class="field">
+          <label>Inner corners Y</label>
+          <input id="innerY" type="number" step="1" value="4" min="2" max="30">
+        </div>
+
+        <div class="field">
+          <label>Pixel density mode</label>
+          <select id="pxMode">
+            <option value="avg" selected>Use average px/mm (default)</option>
+            <option value="separate">Use separate X/Y px/mm</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Snap cell size to integer px</label>
+          <select id="snapPx">
+            <option value="on" selected>ON (recommended)</option>
+            <option value="off">OFF</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <button id="applyBtn">Apply</button>
+          <button id="invertBtn" class="secondary">Invert</button>
+          <button id="rulerBtn" class="secondary">Toggle Ruler</button>
+          <button id="gridBtn" class="secondary">Gridline</button>
+          <button id="centerBtn" class="secondary">Center Mark</button>
+          <button id="fsBtn" class="secondary">Enter Fullscreen</button>
+          <button id="hideBtn" class="secondary">Hide Panel (H)</button>
+        </div>
+      </div>
+
+      <div id="info"></div>
+      <div id="hint">
+        Keys: <code>H</code> panel, <code>R</code> ruler, <code>I</code> invert, <code>+</code>/<code>-</code> scale,
+        arrows move, <code>0</code> center, <code>F</code> fullscreen (or F11).
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // -----------------------------
+    // Core state
+    // -----------------------------
+    const state = {
+      invert: false,
+      showRuler: true,
+      showGridline: false,
+      showCenter: false,
+      offsetX: 0,
+      offsetY: 0,
+      rulerMm: 100, // calibration ruler length
+    };
+
+    const el = {
+      board: document.getElementById('board'),
+      boardWrap: document.getElementById('boardWrap'),
+      centerMark: document.getElementById('centerMark'),
+      rulerH: document.getElementById('rulerH'),
+      rulerV: document.getElementById('rulerV'),
+      status: document.getElementById('status'),
+      panel: document.getElementById('panel'),
+      applyBtn: document.getElementById('applyBtn'),
+      invertBtn: document.getElementById('invertBtn'),
+      rulerBtn: document.getElementById('rulerBtn'),
+      gridBtn: document.getElementById('gridBtn'),
+      centerBtn: document.getElementById('centerBtn'),
+      fsBtn: document.getElementById('fsBtn'),
+      hideBtn: document.getElementById('hideBtn'),
+
+      dispWmm: document.getElementById('dispWmm'),
+      dispHmm: document.getElementById('dispHmm'),
+      dispWpx: document.getElementById('dispWpx'),
+      dispHpx: document.getElementById('dispHpx'),
+      cellMm: document.getElementById('cellMm'),
+      scale: document.getElementById('scale'),
+      innerX: document.getElementById('innerX'),
+      innerY: document.getElementById('innerY'),
+      pxMode: document.getElementById('pxMode'),
+      snapPx: document.getElementById('snapPx'),
+      info: document.getElementById('info'),
+    };
+
+    // -----------------------------
+    // Helpers
+    // -----------------------------
+    function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
+    function computePxPerMm() {
+      const wmm = parseFloat(el.dispWmm.value);
+      const hmm = parseFloat(el.dispHmm.value);
+      const wpx = parseFloat(el.dispWpx.value);
+      const hpx = parseFloat(el.dispHpx.value);
+
+      const pxPerMmX = wpx / wmm;
+      const pxPerMmY = hpx / hmm;
+      const mode = el.pxMode.value;
+
+      if (mode === 'separate') {
+        return { x: pxPerMmX, y: pxPerMmY, avg: (pxPerMmX + pxPerMmY) / 2 };
+      }
+      const avg = (pxPerMmX + pxPerMmY) / 2;
+      return { x: avg, y: avg, avg };
+    }
+
+    function makeBoard(cols, rows) {
+      el.board.innerHTML = '';
+      el.board.style.gridTemplateColumns = `repeat(${cols}, var(--sq))`;
+      el.board.style.gridTemplateRows = `repeat(${rows}, var(--sq))`;
+
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const c = document.createElement('div');
+          c.className = 'cell ' + (((x + y) % 2 === 0) ? 'white' : 'black');
+          el.board.appendChild(c);
+        }
+      }
+      applyInvert();
+      applyGridline();
+    }
+
+    function applyInvert() {
+      const cells = el.board.querySelectorAll('.cell');
+      cells.forEach(cell => {
+        if (state.invert) {
+          cell.classList.toggle('black', cell.classList.contains('white'));
+          cell.classList.toggle('white', !cell.classList.contains('black'));
+        }
+      });
+      // More robust: rebuild with inverted parity if needed
+      // We'll just rebuild on invert button to avoid class drift.
+    }
+
+    function rebuildWithInvert(cols, rows) {
+      el.board.innerHTML = '';
+      el.board.style.gridTemplateColumns = `repeat(${cols}, var(--sq))`;
+      el.board.style.gridTemplateRows = `repeat(${rows}, var(--sq))`;
+
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const c = document.createElement('div');
+          const parity = (x + y) % 2;
+          const isWhite = state.invert ? (parity === 1) : (parity === 0);
+          c.className = 'cell ' + (isWhite ? 'white' : 'black');
+          el.board.appendChild(c);
+        }
+      }
+      applyGridline();
+    }
+
+    function applyGridline() {
+      document.documentElement.style.setProperty('--gridline', state.showGridline ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.0)');
+    }
+
+    function setWrapTransform() {
+      el.boardWrap.style.transform = `translate(calc(-50% + ${state.offsetX}px), calc(-50% + ${state.offsetY}px))`;
+    }
+
+    function buildRuler(pxPerMmX, pxPerMmY) {
+      // Clear rulers
+      el.rulerH.innerHTML = '';
+      el.rulerV.innerHTML = '';
+
+      if (!state.showRuler) {
+        el.rulerH.classList.add('hidden');
+        el.rulerV.classList.add('hidden');
+        return;
+      }
+      el.rulerH.classList.remove('hidden');
+      el.rulerV.classList.remove('hidden');
+
+      const scale = parseFloat(el.scale.value);
+      const lenMm = state.rulerMm;
+
+      const lenPxH = lenMm * pxPerMmX * scale;
+      const lenPxV = lenMm * pxPerMmY * scale;
+
+      // Horizontal ruler
+      el.rulerH.style.width = `${Math.round(lenPxH)}px`;
+      el.rulerH.style.height = `40px`;
+
+      const baseH = document.createElement('div');
+      baseH.className = 'tick';
+      baseH.style.left = '0px';
+      baseH.style.top = '16px';
+      baseH.style.height = '3px';
+      baseH.style.width = `${Math.round(lenPxH)}px`;
+      el.rulerH.appendChild(baseH);
+
+      // ticks every 10mm (longer every 50mm)
+      for (let mm = 0; mm <= lenMm; mm += 10) {
+        const t = document.createElement('div');
+        t.className = 'tick';
+        const x = mm * pxPerMmX * scale;
+        t.style.left = `${Math.round(x)}px`;
+        t.style.top = (mm % 50 === 0) ? '8px' : '12px';
+        t.style.width = '2px';
+        t.style.height = (mm % 50 === 0) ? '16px' : '10px';
+        el.rulerH.appendChild(t);
+      }
+      const labH = document.createElement('div');
+      labH.className = 'label';
+      labH.textContent = `Ruler: ${lenMm} mm (measure and adjust "Scale")`;
+      labH.style.left = '0px';
+      el.rulerH.appendChild(labH);
+
+      // Vertical ruler
+      el.rulerV.style.height = `${Math.round(lenPxV)}px`;
+      el.rulerV.style.width = `40px`;
+
+      const baseV = document.createElement('div');
+      baseV.className = 'tick';
+      baseV.style.left = '16px';
+      baseV.style.top = '0px';
+      baseV.style.width = '3px';
+      baseV.style.height = `${Math.round(lenPxV)}px`;
+      el.rulerV.appendChild(baseV);
+
+      for (let mm = 0; mm <= lenMm; mm += 10) {
+        const t = document.createElement('div');
+        t.className = 'tick';
+        const y = mm * pxPerMmY * scale;
+        t.style.top = `${Math.round(y)}px`;
+        t.style.left = (mm % 50 === 0) ? '8px' : '12px';
+        t.style.height = '2px';
+        t.style.width = (mm % 50 === 0) ? '16px' : '10px';
+        el.rulerV.appendChild(t);
+      }
+      const labV = document.createElement('div');
+      labV.className = 'labelV';
+      labV.textContent = `Ruler: ${lenMm} mm`;
+      labV.style.top = '0px';
+      el.rulerV.appendChild(labV);
+    }
+
+    function applyAll() {
+      const px = computePxPerMm();
+      const scale = parseFloat(el.scale.value);
+
+      const cellMm = parseFloat(el.cellMm.value);
+      const innerX = parseInt(el.innerX.value, 10);
+      const innerY = parseInt(el.innerY.value, 10);
+
+      // Squares count = inner corners + 1
+      const cols = innerX + 1;
+      const rows = innerY + 1;
+
+      // Compute cell pixels
+      const snap = el.snapPx.value === 'on';
+      let cellPxX = cellMm * px.x * scale;
+      let cellPxY = cellMm * px.y * scale;
+
+      if (snap) {
+        cellPxX = Math.max(2, Math.round(cellPxX));
+        cellPxY = Math.max(2, Math.round(cellPxY));
+      }
+
+      // For "avg" mode, x==y already; for "separate" could differ
+      // We'll set CSS var --sq based on X and enforce square pixels by using min of both (keeps cells square in pixels)
+      const cellPx = Math.max(2, Math.floor(Math.min(cellPxX, cellPxY)));
+
+      document.documentElement.style.setProperty('--sq', `${cellPx}px`);
+
+      // Build board
+      rebuildWithInvert(cols, rows);
+
+      // Set board physical info
+      const boardPxW = cols * cellPx;
+      const boardPxH = rows * cellPx;
+
+      // Derived actual mm (based on x/y pxPerMm and scale; use avg for display)
+      const actualMmPerPxAvg = 1.0 / (px.avg * scale);
+      const actualCellMm = cellPx * actualMmPerPxAvg;
+
+      const boardMmW = boardPxW * actualMmPerPxAvg;
+      const boardMmH = boardPxH * actualMmPerPxAvg;
+
+      // Place board (keep current offsets)
+      setWrapTransform();
+
+      // Build rulers
+      buildRuler(px.x, px.y);
+
+      // Update center mark
+      el.centerMark.style.display = state.showCenter ? 'block' : 'none';
+
+      // Status & info
+      const fitW = boardPxW <= window.innerWidth;
+      const fitH = boardPxH <= window.innerHeight;
+
+      el.status.innerHTML =
+        `Display px/mm: <b>${px.avg.toFixed(4)}</b> (mode: ${el.pxMode.value})<br>` +
+        `Cell: <b>${cellPx}px</b> ≈ <b>${actualCellMm.toFixed(1)}mm</b> (target ${cellMm.toFixed(1)}mm)<br>` +
+        `Board: <b>${cols}×${rows}</b> cells (inner corners ${innerX}×${innerY})<br>` +
+        `Board size: <b>${boardPxW}×${boardPxH}px</b> ≈ <b>${(boardMmW/10).toFixed(1)}×${(boardMmH/10).toFixed(1)}cm</b><br>` +
+        `Fits viewport: ${fitW ? '✅' : '⚠️'} width, ${fitH ? '✅' : '⚠️'} height<br>` +
+        `Offset: (${state.offsetX}px, ${state.offsetY}px)`;
+
+      el.info.innerHTML =
+        `• まず <code>Ruler: 100 mm</code> を物理定規で測り、<code>Scale</code> を調整して実測100mmに合わせてください。<br>` +
+        `• その後 <code>Cell size (mm)</code> を狙い値に設定すれば、セルの実寸も揃います。<br>` +
+        `• 画面端の歪み学習のため、撮影時はボードを画面の四隅付近にも移動させ、角度（ピッチ/ヨー/ロール）も変えてください。`;
+    }
+
+    // -----------------------------
+    // UI wiring
+    // -----------------------------
+    el.applyBtn.addEventListener('click', applyAll);
+
+    el.invertBtn.addEventListener('click', () => {
+      state.invert = !state.invert;
+      applyAll();
+    });
+
+    el.rulerBtn.addEventListener('click', () => {
+      state.showRuler = !state.showRuler;
+      applyAll();
+    });
+
+    el.gridBtn.addEventListener('click', () => {
+      state.showGridline = !state.showGridline;
+      applyGridline();
+    });
+
+    el.centerBtn.addEventListener('click', () => {
+      state.showCenter = !state.showCenter;
+      applyAll();
+    });
+
+    el.hideBtn.addEventListener('click', () => {
+      el.panel.classList.toggle('hidden');
+    });
+
+    el.fsBtn.addEventListener('click', async () => {
+      try {
+        await document.documentElement.requestFullscreen();
+      } catch (e) {
+        // Some environments require F11; ignore
+      }
+    });
+
+    // Keyboard shortcuts
+    window.addEventListener('keydown', (e) => {
+      const key = e.key.toLowerCase();
+
+      if (key === 'h') {
+        el.panel.classList.toggle('hidden');
+      } else if (key === 'r') {
+        state.showRuler = !state.showRuler;
+        applyAll();
+      } else if (key === 'i') {
+        state.invert = !state.invert;
+        applyAll();
+      } else if (key === 'f') {
+        // Fullscreen API (F11 also works)
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(()=>{});
+        } else {
+          document.exitFullscreen().catch(()=>{});
+        }
+      } else if (key === '+' || key === '=') {
+        // fine scale up
+        const v = parseFloat(el.scale.value);
+        el.scale.value = (v + 0.005).toFixed(3);
+        applyAll();
+      } else if (key === '-' || key === '_') {
+        // fine scale down
+        const v = parseFloat(el.scale.value);
+        el.scale.value = Math.max(0.1, v - 0.005).toFixed(3);
+        applyAll();
+      } else if (e.key === 'ArrowLeft') {
+        state.offsetX -= 10; setWrapTransform();
+      } else if (e.key === 'ArrowRight') {
+        state.offsetX += 10; setWrapTransform();
+      } else if (e.key === 'ArrowUp') {
+        state.offsetY -= 10; setWrapTransform();
+      } else if (e.key === 'ArrowDown') {
+        state.offsetY += 10; setWrapTransform();
+      } else if (key === '0') {
+        state.offsetX = 0; state.offsetY = 0; setWrapTransform();
+      }
+    });
+
+    window.addEventListener('resize', applyAll);
+
+    // Initial render
+    applyAll();
+  </script>
+</body>
+</html>
