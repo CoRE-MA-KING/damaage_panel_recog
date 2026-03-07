@@ -19,6 +19,7 @@ def horiz_overlap_ratio(b1: Tuple[int, int, int, int], b2: Tuple[int, int, int, 
 def pair_boxes_same_color(
     boxes_xywh: List[Tuple[int, int, int, int]],
     width_tol: float,
+    height_tol: float,
     min_h_overlap: float,
     min_v_gap: int,
 ) -> List[Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int]]]:
@@ -39,6 +40,8 @@ def pair_boxes_same_color(
             if dy < min_v_gap:
                 continue
             if abs(w_t - w_b) > width_tol * max(w_t, w_b):
+                continue
+            if abs(h_t - h_b) > height_tol * max(h_t, h_b):
                 continue
             if horiz_overlap_ratio(top, bottom) < min_h_overlap:
                 continue

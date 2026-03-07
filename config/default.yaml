@@ -35,6 +35,7 @@ camera:
 detection:
   kernel_sz: 3
   width_tol: 0.4  # 上下LEDの幅一致割合（大きいLED側基準）
+  height_tol: 0.45  # 上下LEDの高さ一致割合（大きいLED側基準）
   min_h_overlap: 0.05  # 上下LEDの幅重なり具合（小さいLED側基準）
   min_v_gap: 10  # 上下LED最小距離
   min_box_h: 5  # LED最小高

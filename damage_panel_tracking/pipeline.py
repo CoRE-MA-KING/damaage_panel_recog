@@ -44,6 +44,7 @@ def pairs_from_frame(frame_bgr: np.ndarray, det_cfg: Dict[str, Any], target_colo
     min_box_w = int(det_cfg["min_box_w"])
     min_box_h = int(det_cfg["min_box_h"])
     width_tol = float(det_cfg["width_tol"])
+    height_tol = float(det_cfg["height_tol"])
     min_h_overlap = float(det_cfg["min_h_overlap"])
     min_v_gap = int(det_cfg["min_v_gap"])
 
@@ -54,7 +55,7 @@ def pairs_from_frame(frame_bgr: np.ndarray, det_cfg: Dict[str, Any], target_colo
     for detect_color in detect_colors:
         mask = get_led_mask(hsv, detect_color, hsv_cfg)
         boxes = find_boxes(mask, kernel_sz=kernel_sz, min_box_w=min_box_w, min_box_h=min_box_h)
-        for (top, bottom) in pair_boxes_same_color(boxes, width_tol, min_h_overlap, min_v_gap):
+        for (top, bottom) in pair_boxes_same_color(boxes, width_tol, height_tol, min_h_overlap, min_v_gap):
             # publish/追跡系の判定は従来どおり blue/red のtarget_color基準で扱う。
             pairs.append(build_pair_meta(color=target_color, top=top, bottom=bottom))
     return pairs
