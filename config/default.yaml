@@ -9,6 +9,7 @@
 # - tracking.motpy は backend: motpy のときだけ参照されます（distance/noopでは無視されます）。
 
 camera:
+  # 認識用カメラのデバイスファイルを指定
   device: /dev/video6
   capture:
     width: 1280
@@ -119,14 +120,14 @@ tracking:
     max_staleness: 4
 
 publish:
-  enabled: false
+  enabled: true
   publish_key: damagepanel/target
   max_hz: 0.0  # <= 0 なら無制限（可能な限り高速）
   drop_if_congested: true
   express: true
 
 subscribe:
-  enabled: false
+  enabled: true
   subscribe_key: damagepanel/color
   default_target: blue  # blue | red
 
@@ -158,6 +159,7 @@ coordinate_transform:
     use_publish_main_camera_params: true
 
     camera:
+      # デバッグ用にメインカメラのデバイスファイルを入力
       device: /dev/video4
       capture:
         width: 1280
