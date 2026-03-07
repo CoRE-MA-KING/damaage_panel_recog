@@ -1,11 +1,16 @@
-# Default config (YAML).
+# Default config template (YAML).
+# このファイルはテンプレートです。
+# `~/.config/roboapp/damage_panel_recog_config.yaml` に
+# `damage_panel_recog_config.yaml` としてコピー/リネームして配置し、
+# 実運用時はそちらを編集してください。
 # NOTE:
 # - tracking.backend により使用するトラッキング実装が変わります。
 # - tracking.distance は backend: distance のときだけ参照されます（motpy/noopでは無視されます）。
 # - tracking.motpy は backend: motpy のときだけ参照されます（distance/noopでは無視されます）。
 
 camera:
-  device: /dev/video4
+  # 認識用カメラのデバイスファイルを指定
+  device: /dev/video6
   capture:
     width: 1280
     height: 720
@@ -15,7 +20,7 @@ camera:
     auto_exposure: 1
     white_balance_automatic: 0
 
-    exposure_time_absolute: 4
+    exposure_time_absolute: 6
     gain: 0
     brightness: 0
     contrast: 32
@@ -129,3 +134,42 @@ subscribe:
 ui:
   window_name: "Panel (paired by same-color top & bottom)"
   fps_ema_alpha: 0.2
+
+# panel_recog_camera座標 -> main_camera座標 への変換設定
+# publish時は publish_main_camera を使う
+coordinate_transform:
+  enabled: false
+  panel_vertical_span_m: 0.180
+
+  panel_recog_camera:
+    intrinsics_path: calib/intrinsics_panel_recog_camera.yaml
+    calib_size: 1280x720
+
+  # publish先アプリのmain_camera情報
+  publish_main_camera:
+    intrinsics_path: calib/intrinsics_main_camera.yaml
+    extrinsics_from_panel_recog_path: calib/extrinsics_panel_recog_camera_to_main_camera.yaml
+    calib_size: 1280x720
+    frame_size: 1280x720
+
+  # damage_panel_recog側でmain_cameraを表示して、投影位置を確認したい場合
+  debug_overlay:
+    enabled: false
+    window_name: "Main Camera (projected target)"
+    use_publish_main_camera_params: true
+
+    camera:
+      # デバッグ用にメインカメラのデバイスファイルを入力
+      device: /dev/video4
+      capture:
+        width: 1280
+        height: 720
+        fps: 60
+        fourcc: MJPG
+      init_controls: {}
+
+    # use_publish_main_camera_params: false のときのみ使用
+    main_camera:
+      intrinsics_path: calib/intrinsics_main_camera.yaml
+      extrinsics_from_panel_recog_path: calib/extrinsics_panel_recog_camera_to_main_camera.yaml
+      calib_size: 1280x720

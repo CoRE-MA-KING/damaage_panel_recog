@@ -25,6 +25,7 @@ class MotpyTracker:
     """motpy wrapper implementing our tracker interface."""
 
     def __init__(self, cfg: MotpyConfig, dt: float):
+        # motpyバックエンドを初期化し、任意の割当/ライフサイクル設定を反映する。
         try:
             from motpy import MultiObjectTracker  # type: ignore
         except Exception as e:
@@ -47,6 +48,7 @@ class MotpyTracker:
             self._tracker.max_staleness = cfg.max_staleness
 
     def step(self, detections: List[Detection], dt: float) -> List[Track]:
+        # 自前Detectionをmotpy形式へ変換して更新し、結果をTrackへ戻す。
         from motpy import Detection as MotpyDet  # type: ignore
 
         try:

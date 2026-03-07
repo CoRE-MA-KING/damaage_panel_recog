@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-
+# YAML/CLIの上書きを適用する前に使う基準設定。
 DEFAULTS: Dict[str, Any] = {
     "camera": {
         "device": "/dev/video0",
@@ -39,7 +39,7 @@ DEFAULTS: Dict[str, Any] = {
     },
     "tracking": {
         "enabled": False,
-        "backend": "motpy",  # motpy | distance | noop (future: sort)
+        "backend": "motpy",  # motpy | distance | noop（将来的にsort）
         "min_steps_alive": 2,
         "history_len": 20,
         "color_bgr": [0, 255, 255],
@@ -66,7 +66,7 @@ DEFAULTS: Dict[str, Any] = {
     "publish": {
         "enabled": False,
         "publish_key": "damagepanel/target",
-        "max_hz": 0.0,  # <= 0 means unlimited
+        "max_hz": 0.0,  # <= 0 なら無制限
         "drop_if_congested": True,
         "express": True,
     },
@@ -78,6 +78,36 @@ DEFAULTS: Dict[str, Any] = {
     "ui": {
         "window_name": "Panel (paired by same-color top & bottom)",
         "fps_ema_alpha": 0.2,
+    },
+    "coordinate_transform": {
+        "enabled": False,
+        # 上下LED中心間の実寸スパン[m]。
+        "panel_vertical_span_m": 0.180,
+        "panel_recog_camera": {
+            "intrinsics_path": "calib/intrinsics_panel_recog_camera.yaml",
+            "calib_size": "1280x720",
+        },
+        "publish_main_camera": {
+            "intrinsics_path": "calib/intrinsics_main_camera.yaml",
+            "extrinsics_from_panel_recog_path": "calib/extrinsics_panel_recog_camera_to_main_camera.yaml",
+            "calib_size": "1280x720",
+            "frame_size": "1280x720",
+        },
+        "debug_overlay": {
+            "enabled": False,
+            "window_name": "Main Camera (projected target)",
+            "use_publish_main_camera_params": True,
+            "camera": {
+                "device": "/dev/video0",
+                "capture": {"width": 1280, "height": 720, "fps": 60, "fourcc": "MJPG"},
+                "init_controls": {},
+            },
+            "main_camera": {
+                "intrinsics_path": "calib/intrinsics_main_camera.yaml",
+                "extrinsics_from_panel_recog_path": "calib/extrinsics_panel_recog_camera_to_main_camera.yaml",
+                "calib_size": "1280x720",
+            },
+        },
     },
     "logging": {
         "enabled": False,

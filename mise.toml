@@ -8,7 +8,14 @@ run = "git submodule update --init --recursive"
 
 [tasks.generate_proto]
 description = "Generate Python code from Protobuf files"
-run = "buf generate"
+run = """
+if ! find utils/proto -type f -name '*.proto' -print -quit 2>/dev/null | grep -q .; then
+  echo "No .proto files found under utils/proto." >&2
+  echo "Run: git submodule update --init --recursive" >&2
+  exit 1
+fi
+buf generate
+"""
 sources = ["utils/proto/**/*.proto"]
 outputs = ["msg/src/roboapp/*.py", "msg/src/roboapp/*.pyi"]
 

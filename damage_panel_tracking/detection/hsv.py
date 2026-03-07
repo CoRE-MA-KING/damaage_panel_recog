@@ -6,6 +6,7 @@ import cv2
 
 
 def get_led_mask(hsv: np.ndarray, color: str, hsv_cfg: Dict[str, Any]) -> np.ndarray:
+    # 設定済みHSV閾値から対象色の2値マスクを生成する。
     if color == "blue":
         b = hsv_cfg["blue"]
         lo = np.array([b["H_low"], b["S_low"], b["V_low"]], dtype=np.uint8)
@@ -30,6 +31,7 @@ def get_led_mask(hsv: np.ndarray, color: str, hsv_cfg: Dict[str, Any]) -> np.nda
 
 
 def find_boxes(mask: np.ndarray, kernel_sz: int, min_box_w: int, min_box_h: int) -> List[Tuple[int, int, int, int]]:
+    # マスクノイズを除去し、連結領域からbboxを抽出する。
     kernel = np.ones((kernel_sz, kernel_sz), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.dilate(mask, kernel, iterations=1)

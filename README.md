@@ -1,133 +1,147 @@
-# damage_panel_recog_and_tracking (refactored)
+# damaage_panel_recog
 
-元の `damage_panel_recog_and_tracking.py` を **モジュール分割**し、
-「検出（bbox生成） → 追跡（motpyなど差し替え可能） → 表示/Publish」
-の境界をはっきりさせた構成です。
+`panel_recog_camera` で検出したダメージパネル座標を、
+必要に応じて `main_camera` 座標へ変換して Zenoh publish するパッケージです。
 
-この構成にしておくと、将来的に **C++へ移植**する場合も
-`damage_panel_tracking/tracking/` 以下を別実装（SORTなど）に置き換えるだけで済むようにできます。
+この README は、インストール後に「上から順に実行すれば準備から実行まで完了する」流れで記載しています。
 
----
+## 0. 前提（環境・依存パッケージ）
 
-## 依存関係
-
-### 必須
-
-- [mise](https://mise.jdx.dev)
-  - 以下のパッケージを含みます(miseを使いたくない場合は、個別にインストールしてください) )
-    - [uv](https://astral.sh/uv)
-    - [buf](https://buf.build/product/cli)
-
-### 任意
-
-- v4l2-ctl（v4l-utilsに含まれる。起動時カメラ設定をしたい場合）
-
+- OS: Ubuntu 24.04
+- Python: `>=3.12`（`pyproject.toml` 準拠）
+- `v4l2-ctl`（カメラ初期設定を有効
     ```bash
     sudo apt install v4l-utils
     ```
 
-## 環境構築
+- [mise](https://mise.jdx.dev)
+  - 以下のパッケージを含みます(miseを使いたくない場合は、個別にインストールしてください) 
+    - [uv](https://astral.sh/uv)
+    - [buf](https://buf.build/product/cli)
+
+## 1. セットアップ
+
+リポジトリルート（この `README.md` があるディレクトリ）で実行します。
 
 ```bash
+git submodule update --init --recursive
+mise install
 mise build
-source ./.venv/bin/activate
 ```
 
----
+`mise build` で以下が実行されます。
 
-## 実行方法
+- Protobufコード生成（`buf generate`）
+- Python依存関係の同期（`uv sync`）
 
-### 基本（画像表示あり・追跡なし）
+miseやuvコマンドを使わずに操作をしたい場合は、仮想環境を有効化してください。
 
 ```bash
-python3 damage_panel_recog_and_tracking.py
+source .venv/bin/activate
 ```
 
-### デバイス指定（番号 or デバイスパス）
+## 2. 最小実行
 
 ```bash
-python3 damage_panel_recog_and_tracking.py -d 0
-python3 damage_panel_recog_and_tracking.py -d /dev/video0
+mise start
 ```
 
-### 画像表示なし
+よく使うオプション:
 
 ```bash
-python3 damage_panel_recog_and_tracking.py -n
+# デバイス指定
+mise start -- -d /dev/video0
+
+# 画面表示なし
+mise start -- -n
+
+# トラックバー設定UI
+mise start -- -s
 ```
 
-### 設定GUI（トラックバー）
+設定ファイルは `${XDG_CONFIG_HOME:-~/.config}/roboapp/damage_panel_recog_config.yaml`
+を自動で読み込みます。
+`config/default.yaml` はテンプレートとしてコピーして利用してください。
+設定ファイルが見つからない、または内容が不正な場合は起動しません。
+
+## 3. Zenoh publish / subscribe
+
+`publish` / `subscribe` を使う場合は、先に Zenoh ルーターと設定ファイル
+`~/.config/roboapp/zenoh.json5` を準備してください
+（`utils/configurator/README.md` 参照）。
 
 ```bash
-python3 damage_panel_recog_and_tracking.py -s
+# publish
+mise start -- -p
+
+# subscribeでターゲット色を受信
+mise start -- --subscribe
+
+# subscribe無効時のデフォルト色上書き
+mise start -- --default-target red
 ```
 
-### トラッキング（motpy backend）
+`publish` / `subscribe` のキーや有効/無効は
+`~/.config/roboapp/damage_panel_recog_config.yaml` で管理します。
+
+## 4. 座標変換付き運用（panel_recog_camera -> main_camera）
+
+### 4-1. キャリブレーション実施
+
+以下を先に準備します。
+
+- `panel_recog_camera` の内部パラメータ
+- publish先 `main_camera` の内部パラメータ
+- `panel_recog_camera -> main_camera` の外部パラメータ
+
+手順は [calibration/README.md](./calibration/README.md) を参照してください。
+
+- `calibration/README.md`
+- `calibration/checkerboard/README.md`（チェッカーボード表示手順）
+
+### 4-2. 設定ファイル反映
+
+`~/.config/roboapp/damage_panel_recog_config.yaml` の
+`coordinate_transform` を更新します。
+
+- `panel_recog_camera.intrinsics_path`
+- `publish_main_camera.intrinsics_path`
+- `publish_main_camera.extrinsics_from_panel_recog_path`
+- `publish_main_camera.frame_size`
+
+### 4-3. 座標変換有効で実行
 
 ```bash
-pip install motpy
-python3 damage_panel_recog_and_tracking.py -t
+# 変換してpublish（変換しない場合は認識側カメラのピクセル値でpublish）
+mise start -- -p --coord-transform
+
+# main_camera重畳表示デバッグも有効
+mise start -- -p --coord-transform --main-overlay
+
+# デバッグ表示のmain_cameraデバイス指定
+mise start -- -p --coord-transform --main-overlay --main-camera-device /dev/video4
 ```
 
-### Zenoh publish / subscribe
+## 5. ログ取得（任意）
 
 ```bash
-pip install zenoh
-python3 damage_panel_recog_and_tracking.py -p
+mise start -- -l
+mise start -- -l --log-path logs/run1.csv
 ```
 
-`publish` / `subscribe` は `config/default.yaml` で個別制御できます。
+## 6. 補助READMEへのリンク
 
-- `publish.enabled: false` なら、検知は行うが publish はしません。
-- `subscribe.enabled: false` なら、`subscribe.default_target` (`blue` or `red`) をターゲット色として使います。
-- `--default-target red` のように CLI から `subscribe.default_target` を上書きできます。
+機能別の詳細は以下を参照してください。
 
-```bash
-python3 damage_panel_recog_and_tracking.py --subscribe
-python3 damage_panel_recog_and_tracking.py --default-target red
-```
+- キャリブレーション: `calibration/README.md`
+- チェッカーボード表示: `calibration/checkerboard/README.md`
+- ユーティリティ全体: `utils/README.md`
+- configurator（systemd/自動起動設定）: `utils/configurator/README.md`
+- Zenoh通信サンプル: `utils/examples/README.md`
+- Protobuf定義: `utils/proto/README.md`
 
-### (計測用) ターゲット座標ログをCSVに保存
+## 7. 参考情報
 
-「映像中に映る物体は1つ以下」という前提で、**フレーム間の移動量（dx,dy）**や**速度(px/s)** の当たりをつける用途向けです。
-動画録画よりも負荷が軽く、90fps付近のまま統計が取りやすいです。
-
-```bash
-python3 damage_panel_recog_and_tracking.py -l
-```
-
-出力先はデフォルトで `logs/motion_log_YYYYmmdd_HHMMSS.csv` です。明示する場合:
-
-```bash
-python3 damage_panel_recog_and_tracking.py -l --log-path logs/run1.csv
-```
-
----
-
-## 設定ファイル
-
-デフォルトは `config/default.yaml` を読みます。
-
-- YAMLを使う場合: `pip install pyyaml`
-
-例:
-
-```bash
-python3 damage_panel_recog_and_tracking.py --config config/default.yaml
-```
-
----
-
-## 将来的に追跡部を差し替える場所
-
-自分用メモ
-
-- Interface: `damage_panel_tracking/tracking/base.py`
-- motpy wrapper: `damage_panel_tracking/tracking/motpy_tracker.py`
-
-SORTを自作する場合は、例えば
-
-- `damage_panel_tracking/tracking/sort_tracker.py` を追加し
-- `damage_panel_tracking/cli.py` の `_build_tracker()` に backend名を足す
-
-という形で置き換えられる。
+- エントリポイント: `damage_panel_recog_and_tracking.py`
+- 実装本体: `damage_panel_tracking/`
+- 変換ロジック: `damage_panel_tracking/transform/projection.py`
