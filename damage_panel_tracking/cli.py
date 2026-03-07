@@ -124,12 +124,10 @@ def _load_roboapp_config_override() -> Dict[str, Any]:
     except ValueError as e:
         print(f"[エラー] 設定ファイルの形式が不正です: {path}")
         print(f"[エラー] 理由: {e}")
-        print("[エラー] この理由により起動できません。")
         raise
     except Exception as e:
         print(f"[エラー] 設定ファイルの読み込みに失敗しました: {path}")
         print(f"[エラー] 理由: {type(e).__name__}: {e}")
-        print("[エラー] この理由により起動できません。")
         raise
 
     print(f"[情報] 設定ファイルを読み込みました: {path}")
@@ -206,22 +204,11 @@ def main() -> int:
         print(f"[エラー] 設定値が不正なため起動できません: {e}")
         return 2
 
-    # 表示/GUIの動作を確定し、認識カメラを開く。
+    # 表示/GUIの動作を確定する。
     do_display = not bool(args.no_display)
     use_gui = bool(args.setting) and do_display
 
     transform_cfg = cfg.get("coordinate_transform", {})
-
-    device = normalize_device_arg(cfg["camera"]["device"])
-    cap, dev_path = setup_camera(device, cfg["camera"]["capture"], cfg["camera"]["init_controls"])
-
-    # 表示ウィンドウと任意の調整用GUIを準備する。
-    win_name = str(cfg["ui"]["window_name"])
-    if do_display or use_gui:
-        cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
-
-    if use_gui:
-        create_setting_gui(win_name, dev_path, cfg["detection"]["hsv"], cfg["camera"]["init_controls"])
 
     # 確定済み設定からpublish/subscribe用の実行パラメータを取り出す。
     publish_enabled = bool(cfg["publish"]["enabled"])
@@ -240,14 +227,29 @@ def main() -> int:
     latest_publisher: LatestFramePublisher | None = None
     motion_logger = None
     tracker = None
-    viz = TrackVizState(history_len=int(cfg["tracking"]["history_len"]))
+    viz: TrackVizState | None = None
     transform_session: TransformSession | None = None
-
-    # 実際にネゴシエーションされた結果の画像サイズを得る（サイズ取得専用）
-    negotiated_panel_frame = _read_first_frame(cap, camera_label="panel_recog_camera")
-    panel_frame_size = (int(negotiated_panel_frame.shape[1]), int(negotiated_panel_frame.shape[0]))
+    cap: cv2.VideoCapture | None = None
+    win_name = str(cfg["ui"]["window_name"])
 
     try:
+        # 認識カメラを開いて表示系を初期化する。
+        device = normalize_device_arg(cfg["camera"]["device"])
+        cap, dev_path = setup_camera(device, cfg["camera"]["capture"], cfg["camera"]["init_controls"])
+
+        # 表示ウィンドウと任意の調整用GUIを準備する。
+        if do_display or use_gui:
+            cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+
+        if use_gui:
+            create_setting_gui(win_name, dev_path, cfg["detection"]["hsv"], cfg["camera"]["init_controls"])
+
+        viz = TrackVizState(history_len=int(cfg["tracking"]["history_len"]))
+
+        # 実際にネゴシエーションされた結果の画像サイズを得る（サイズ取得専用）
+        negotiated_panel_frame = _read_first_frame(cap, camera_label="panel_recog_camera")
+        panel_frame_size = (int(negotiated_panel_frame.shape[1]), int(negotiated_panel_frame.shape[0]))
+
         # publish有効時は非同期publisherプロセスを起動する。
         if publish_enabled:
             latest_publisher = LatestFramePublisher(
@@ -419,6 +421,18 @@ def main() -> int:
                         main_frame_size=transform_session.publish_model.main_frame_size,
                     )
                 latest_publisher.submit(payload)
+    except ValueError as e:
+        print("[エラー] 設定ファイルの値が不正なため起動できません。")
+        print(f"[エラー] 理由: {e}")
+        return 2
+    except TypeError as e:
+        print("[エラー] 設定ファイルの値の型が不正なため起動できません。")
+        print(f"[エラー] 理由: {e}")
+        return 2
+    except RuntimeError as e:
+        print("[エラー] 設定ファイルの内容により初期化に失敗しました。")
+        print(f"[エラー] 理由: {e}")
+        return 2
 
     # 例外時も含めて全リソースを確実にクローズする。
     finally:
@@ -431,7 +445,8 @@ def main() -> int:
         close_publisher(session)
         if transform_session is not None:
             transform_session.close()
-        cap.release()
+        if cap is not None:
+            cap.release()
         cv2.destroyAllWindows()
 
     return 0
