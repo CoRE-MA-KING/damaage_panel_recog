@@ -8,7 +8,7 @@ import numpy as np
 
 from .detection.hsv import find_boxes, get_led_mask
 from .detection.pairing import build_pair_meta, pair_boxes_same_color
-from .detection.types import ColorName, PairMeta, xyxy_center
+from .detection.types import ColorName, PairMeta, iou_xyxy, xyxy_center
 from .tracking.base import Detection, MultiObjectTracker, Track
 from .tracking.distance_tracker import DistanceConfig, DistanceTracker
 from .tracking.motpy_tracker import MotpyConfig, MotpyTracker
@@ -111,6 +111,34 @@ def select_target_track(tracks: List[Track], frame_w: int, frame_h: int) -> Tupl
     return best_xy, best_track
 
 
+def find_track_by_id(tracks: List[Track], track_id: str) -> Track | None:
+    # 指定IDのtrackが現在フレームに存在すれば返す。
+    for t in tracks:
+        if t.track_id == track_id:
+            return t
+    return None
+
+
+def track_center_xy(track: Track) -> Tuple[int, int]:
+    # track bbox中心を整数ピクセル座標へ変換する。
+    cx, cy = xyxy_center(track.box_xyxy)
+    return int(cx), int(cy)
+
+
+def select_pair_for_track(track: Track, pairs: List[PairMeta], *, iou_thresh: float = 0.1) -> PairMeta | None:
+    # 選択trackに最も重なる検出ペアを返す（重なり不足ならNone）。
+    best_pair: PairMeta | None = None
+    best_iou = 0.0
+    for p in pairs:
+        iou = iou_xyxy(track.box_xyxy, p.union_xyxy)
+        if iou > best_iou:
+            best_iou = iou
+            best_pair = p
+    if best_pair is None or best_iou < float(iou_thresh):
+        return None
+    return best_pair
+
+
 def build_tracker(track_cfg: Dict[str, Any], fps: float) -> MultiObjectTracker:
     # 設定に従って追跡バックエンドを生成する。
     backend = str(track_cfg.get("backend", "motpy")).lower()
@@ -161,6 +189,7 @@ def process_frame(
     tracker: MultiObjectTracker | None,
     dt: float,
     target_color: ColorName,
+    previous_target_track_id: str | None = None,
 ) -> FrameResult:
     # 1フレーム分の検出/追跡を実行し、publish対象座標を決定する。
     pairs = pairs_from_frame(frame_bgr, det_cfg)
@@ -177,8 +206,15 @@ def process_frame(
         detections = detections_from_pairs(target_pairs, frame_bgr.shape)
         
         tracks = tracker.step(detections, dt=dt)
-        if len(detections) > 0 and len(tracks) > 0:
-            target, selected_track = select_target_track(tracks, frame_w=frame_w, frame_h=frame_h)
+        if len(tracks) > 0:
+            if previous_target_track_id:
+                selected_track = find_track_by_id(tracks, previous_target_track_id)
+            if selected_track is None:
+                target, selected_track = select_target_track(tracks, frame_w=frame_w, frame_h=frame_h)
+            else:
+                target = track_center_xy(selected_track)
+            if selected_track is not None:
+                selected_pair = select_pair_for_track(selected_track, target_pairs, iou_thresh=0.1)
             chosen_from_tracks = True
 
     return FrameResult(
