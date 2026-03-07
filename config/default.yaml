@@ -133,6 +133,8 @@ subscribe:
   default_target: blue  # blue | red
 
 ui:
+  # true: 認識カメラ映像を表示しない（CLI の -n / --no-display と同義）
+  no_display: true
   window_name: "Panel (paired by same-color top & bottom)"
   fps_ema_alpha: 0.2
 

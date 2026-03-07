@@ -59,6 +59,9 @@ mise start -- -n
 mise start -- -s
 ```
 
+`ui.no_display`（設定ファイル）でも表示有無を切り替えできます。
+現在のテンプレート既定値は `true`（非表示）です。
+
 設定ファイルは `${XDG_CONFIG_HOME:-~/.config}/roboapp/damage_panel_recog_config.yaml`
 を自動で読み込みます。
 `config/default.yaml` はテンプレートとしてコピーして利用してください。

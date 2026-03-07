@@ -77,6 +77,7 @@ DEFAULTS: Dict[str, Any] = {
         "default_target": "blue",
     },
     "ui": {
+        "no_display": True,
         "window_name": "Panel (paired by same-color top & bottom)",
         "fps_ema_alpha": 0.2,
     },

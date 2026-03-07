@@ -204,8 +204,9 @@ def main() -> int:
         print(f"[エラー] 設定値が不正なため起動できません: {e}")
         return 2
 
-    # 表示/GUIの動作を確定する。
-    do_display = not bool(args.no_display)
+    # 表示/GUIの動作を確定する（CLIの --no-display は設定ファイル指定より優先）。
+    cfg_no_display = bool(cfg["ui"].get("no_display", True))
+    do_display = not bool(args.no_display or cfg_no_display)
     use_gui = bool(args.setting) and do_display
 
     transform_cfg = cfg.get("coordinate_transform", {})
