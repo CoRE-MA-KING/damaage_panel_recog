@@ -57,10 +57,12 @@ mise start -- -n
 
 # トラックバー設定UI
 mise start -- -s
-
-# 設定ファイル指定
-mise start -- --config config/default.yaml
 ```
+
+設定ファイルは `${XDG_CONFIG_HOME:-~/.config}/roboapp/damage_panel_recog_config.yaml`
+を自動で読み込みます。
+`config/default.yaml` はテンプレートとしてコピーして利用してください。
+設定ファイルが見つからない、または内容が不正な場合は起動しません。
 
 ## 3. Zenoh publish / subscribe
 
@@ -79,7 +81,8 @@ mise start -- --subscribe
 mise start -- --default-target red
 ```
 
-`publish` / `subscribe` のキーや有効/無効は `config/default.yaml` で管理します。
+`publish` / `subscribe` のキーや有効/無効は
+`~/.config/roboapp/damage_panel_recog_config.yaml` で管理します。
 
 ## 4. 座標変換付き運用（panel_recog_camera -> main_camera）
 
@@ -98,7 +101,8 @@ mise start -- --default-target red
 
 ### 4-2. 設定ファイル反映
 
-`config/default.yaml` の `coordinate_transform` を更新します。
+`~/.config/roboapp/damage_panel_recog_config.yaml` の
+`coordinate_transform` を更新します。
 
 - `panel_recog_camera.intrinsics_path`
 - `publish_main_camera.intrinsics_path`

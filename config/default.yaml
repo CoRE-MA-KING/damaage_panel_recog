@@ -1,10 +1,15 @@
-# Default config (YAML).
+# Default config template (YAML).
+# このファイルはテンプレートです。
+# `~/.config/roboapp/damage_panel_recog_config.yaml` に
+# `damage_panel_recog_config.yaml` としてコピー/リネームして配置し、
+# 実運用時はそちらを編集してください。
 # NOTE:
 # - tracking.backend により使用するトラッキング実装が変わります。
 # - tracking.distance は backend: distance のときだけ参照されます（motpy/noopでは無視されます）。
 # - tracking.motpy は backend: motpy のときだけ参照されます（distance/noopでは無視されます）。
 
 camera:
+  # 認識用カメラのデバイスファイルを指定
   device: /dev/video6
   capture:
     width: 1280
@@ -15,7 +20,7 @@ camera:
     auto_exposure: 1
     white_balance_automatic: 0
 
-    exposure_time_absolute: 4
+    exposure_time_absolute: 6
     gain: 0
     brightness: 0
     contrast: 32
@@ -115,14 +120,14 @@ tracking:
     max_staleness: 4
 
 publish:
-  enabled: false
+  enabled: true
   publish_key: damagepanel/target
   max_hz: 0.0  # <= 0 なら無制限（可能な限り高速）
   drop_if_congested: true
   express: true
 
 subscribe:
-  enabled: false
+  enabled: true
   subscribe_key: damagepanel/color
   default_target: blue  # blue | red
 
@@ -154,6 +159,7 @@ coordinate_transform:
     use_publish_main_camera_params: true
 
     camera:
+      # デバッグ用にメインカメラのデバイスファイルを入力
       device: /dev/video4
       capture:
         width: 1280
