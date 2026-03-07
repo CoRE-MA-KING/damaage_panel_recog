@@ -32,24 +32,25 @@ def normalize_device_arg(dev: Any) -> Any:
     return dev
 
 
-def pairs_from_frame(frame_bgr: np.ndarray, det_cfg: Dict[str, Any]) -> List[PairMeta]:
-    # 赤/青LED領域を検出し、同色の上下LEDをペア化する。
+def pairs_from_frame(frame_bgr: np.ndarray, det_cfg: Dict[str, Any], target_color: ColorName) -> List[PairMeta]:
+    # target_colorに対応するLED領域のみを検出し、同色の上下LEDをペア化する。
     hsv_cfg = det_cfg["hsv"]
     kernel_sz = int(det_cfg["kernel_sz"])
     min_box_w = int(det_cfg["min_box_w"])
     min_box_h = int(det_cfg["min_box_h"])
     width_tol = float(det_cfg["width_tol"])
+    height_tol = float(det_cfg["height_tol"])
     min_h_overlap = float(det_cfg["min_h_overlap"])
     min_v_gap = int(det_cfg["min_v_gap"])
 
     hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
 
+    mask = get_led_mask(hsv, target_color, hsv_cfg)
+    boxes = find_boxes(mask, kernel_sz=kernel_sz, min_box_w=min_box_w, min_box_h=min_box_h)
+
     pairs: List[PairMeta] = []
-    for color in ("blue", "red"):
-        mask = get_led_mask(hsv, color, hsv_cfg)
-        boxes = find_boxes(mask, kernel_sz=kernel_sz, min_box_w=min_box_w, min_box_h=min_box_h)
-        for (top, bottom) in pair_boxes_same_color(boxes, width_tol, min_h_overlap, min_v_gap):
-            pairs.append(build_pair_meta(color=color, top=top, bottom=bottom))
+    for (top, bottom) in pair_boxes_same_color(boxes, width_tol, height_tol, min_h_overlap, min_v_gap):
+        pairs.append(build_pair_meta(color=target_color, top=top, bottom=bottom))
     return pairs
 
 # ペア検出を面積ベースの簡易scoreつきでtracker入力へ変換する。
@@ -70,11 +71,6 @@ def detections_from_pairs(pairs: List[PairMeta], frame_shape: Tuple[int, int, in
         detections.append(Detection(box_xyxy=p.union_xyxy, score=float(score), class_id=0))
     # 変換後のDetection一覧を返す。
     return detections
-
-
-def filter_pairs_by_color(pairs: List[PairMeta], target_color: ColorName) -> List[PairMeta]:
-    # 現在のターゲット色に一致するペアだけを残す。
-    return [p for p in pairs if p.color == target_color]
 
 
 def select_target_pair(pairs: List[PairMeta], frame_w: int, frame_h: int) -> Tuple[Tuple[int, int], PairMeta | None]:
@@ -192,8 +188,8 @@ def process_frame(
     previous_target_track_id: str | None = None,
 ) -> FrameResult:
     # 1フレーム分の検出/追跡を実行し、publish対象座標を決定する。
-    pairs = pairs_from_frame(frame_bgr, det_cfg)
-    target_pairs = filter_pairs_by_color(pairs, target_color)
+    pairs = pairs_from_frame(frame_bgr, det_cfg, target_color)
+    target_pairs = pairs
     frame_h, frame_w = frame_bgr.shape[0], frame_bgr.shape[1]
     target, selected_pair = select_target_pair(target_pairs, frame_w=frame_w, frame_h=frame_h)
     

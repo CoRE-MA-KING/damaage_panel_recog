@@ -26,6 +26,7 @@ DEFAULTS: Dict[str, Any] = {
     "detection": {
         "kernel_sz": 3,
         "width_tol": 0.6,
+        "height_tol": 0.45,
         "min_h_overlap": 0.05,
         "min_v_gap": 1,
         "min_box_h": 1,
