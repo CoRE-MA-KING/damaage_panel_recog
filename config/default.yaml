@@ -15,7 +15,7 @@ camera:
     auto_exposure: 1
     white_balance_automatic: 0
 
-    exposure_time_absolute: 4
+    exposure_time_absolute: 6
     gain: 0
     brightness: 0
     contrast: 32
