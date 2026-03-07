@@ -14,6 +14,11 @@ from .tracking.distance_tracker import DistanceConfig, DistanceTracker
 from .tracking.motpy_tracker import MotpyConfig, MotpyTracker
 from .tracking.noop_tracker import NoopTracker
 
+DETECTION_COLORS_BY_TARGET: dict[ColorName, tuple[str, str]] = {
+    "blue": ("blue", "cyan"),
+    "red": ("red", "mazenta"),
+}
+
 
 @dataclass(frozen=True)
 class FrameResult:
@@ -33,7 +38,7 @@ def normalize_device_arg(dev: Any) -> Any:
 
 
 def pairs_from_frame(frame_bgr: np.ndarray, det_cfg: Dict[str, Any], target_color: ColorName) -> List[PairMeta]:
-    # 指定色LED領域のみを検出し、同色の上下LEDをペア化する。
+    # target_colorに対応する2色のLED領域を検出し、同色の上下LEDをペア化する。
     hsv_cfg = det_cfg["hsv"]
     kernel_sz = int(det_cfg["kernel_sz"])
     min_box_w = int(det_cfg["min_box_w"])
@@ -44,12 +49,14 @@ def pairs_from_frame(frame_bgr: np.ndarray, det_cfg: Dict[str, Any], target_colo
 
     hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
 
-    mask = get_led_mask(hsv, target_color, hsv_cfg)
-    boxes = find_boxes(mask, kernel_sz=kernel_sz, min_box_w=min_box_w, min_box_h=min_box_h)
-
     pairs: List[PairMeta] = []
-    for (top, bottom) in pair_boxes_same_color(boxes, width_tol, min_h_overlap, min_v_gap):
-        pairs.append(build_pair_meta(color=target_color, top=top, bottom=bottom))
+    detect_colors = DETECTION_COLORS_BY_TARGET[target_color]
+    for detect_color in detect_colors:
+        mask = get_led_mask(hsv, detect_color, hsv_cfg)
+        boxes = find_boxes(mask, kernel_sz=kernel_sz, min_box_w=min_box_w, min_box_h=min_box_h)
+        for (top, bottom) in pair_boxes_same_color(boxes, width_tol, min_h_overlap, min_v_gap):
+            # publish/追跡系の判定は従来どおり blue/red のtarget_color基準で扱う。
+            pairs.append(build_pair_meta(color=target_color, top=top, bottom=bottom))
     return pairs
 
 # ペア検出を面積ベースの簡易scoreつきでtracker入力へ変換する。

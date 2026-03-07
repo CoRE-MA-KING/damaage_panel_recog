@@ -42,19 +42,33 @@ detection:
   hsv:
     blue:
       H_low: 100
-      H_high: 135
+      H_high: 136
       S_low: 180
+      S_high: 255
+      V_low: 120
+      V_high: 255
+    cyan:
+      H_low: 72
+      H_high: 108
+      S_low: 150
       S_high: 255
       V_low: 120
       V_high: 255
     red1:
       H_low: 0
-      H_high: 15
+      H_high: 18
     red2:
-      H_low: 165
+      H_low: 163
       H_high: 179
     redSV:
       S_low: 180
+      S_high: 255
+      V_low: 120
+      V_high: 255
+    mazenta:
+      H_low: 132
+      H_high: 168
+      S_low: 150
       S_high: 255
       V_low: 120
       V_high: 255

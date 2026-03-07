@@ -32,9 +32,11 @@ DEFAULTS: Dict[str, Any] = {
         "min_box_w": 4,
         "hsv": {
             "blue": {"H_low": 100, "H_high": 135, "S_low": 180, "S_high": 255, "V_low": 120, "V_high": 255},
+            "cyan": {"H_low": 80, "H_high": 99, "S_low": 150, "S_high": 255, "V_low": 120, "V_high": 255},
             "red1": {"H_low": 0, "H_high": 15},
             "red2": {"H_low": 165, "H_high": 179},
             "redSV": {"S_low": 180, "S_high": 255, "V_low": 120, "V_high": 255},
+            "mazenta": {"H_low": 140, "H_high": 164, "S_low": 150, "S_high": 255, "V_low": 120, "V_high": 255},
         },
     },
     "tracking": {
