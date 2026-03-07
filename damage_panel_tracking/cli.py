@@ -108,24 +108,31 @@ def _resolve_roboapp_config_path() -> Path:
 
 
 def _load_roboapp_config_override() -> Dict[str, Any]:
-    # 既定の外部設定を読み込み、失敗時は空上書きで続行する。
+    # 既定の外部設定を読み込む。失敗時は例外を投げて起動を中止させる。
     path = _resolve_roboapp_config_path()
     try:
         loaded = load_config(path)
     except FileNotFoundError:
-        print(f"[ERROR] config file not found: {path}")
-        print("[INFO] place config file at ~/.config/roboapp/damage_panel_recog_config.yaml")
-        return {}
+        print(f"[エラー] 設定ファイルが見つかりません: {path}")
+        print("[エラー] 起動できません。")
+        print(
+            "[案内] `damage_panel_recog/config/default.yaml` を "
+            "`damage_panel_recog_config.yaml` にリネームし、"
+            "`~/.config/roboapp/` 配下に配置してください。"
+        )
+        raise
     except ValueError as e:
-        print(f"[ERROR] config file is invalid: {path} ({e})")
-        print("[WARN] continuing with built-in defaults.")
-        return {}
+        print(f"[エラー] 設定ファイルの形式が不正です: {path}")
+        print(f"[エラー] 理由: {e}")
+        print("[エラー] この理由により起動できません。")
+        raise
     except Exception as e:
-        print(f"[ERROR] failed to load config file: {path} ({type(e).__name__}: {e})")
-        print("[WARN] continuing with built-in defaults.")
-        return {}
+        print(f"[エラー] 設定ファイルの読み込みに失敗しました: {path}")
+        print(f"[エラー] 理由: {type(e).__name__}: {e}")
+        print("[エラー] この理由により起動できません。")
+        raise
 
-    print(f"[INFO] loaded config file: {path}")
+    print(f"[情報] 設定ファイルを読み込みました: {path}")
     return loaded
 
 
@@ -187,19 +194,17 @@ def main() -> int:
     # 入力を解釈し、実効設定（defaults <- file <- CLI）を組み立てる。
     args = parse_args()
 
-    override = _load_roboapp_config_override()
+    try:
+        override = _load_roboapp_config_override()
+    except Exception:
+        return 2
+
     cfg = build_effective_config(DEFAULTS, override)
     try:
         _apply_cli_overrides(cfg, args)
     except ValueError as e:
-        print(f"[ERROR] config value is invalid: {e}")
-        print("[WARN] continuing with built-in defaults.")
-        cfg = build_effective_config(DEFAULTS, {})
-        try:
-            _apply_cli_overrides(cfg, args)
-        except ValueError as e2:
-            print(f"[ERROR] invalid CLI option: {e2}")
-            return 2
+        print(f"[エラー] 設定値が不正なため起動できません: {e}")
+        return 2
 
     # 表示/GUIの動作を確定し、認識カメラを開く。
     do_display = not bool(args.no_display)

@@ -62,6 +62,7 @@ mise start -- -s
 設定ファイルは `${XDG_CONFIG_HOME:-~/.config}/roboapp/damage_panel_recog_config.yaml`
 を自動で読み込みます。
 `config/default.yaml` はテンプレートとしてコピーして利用してください。
+設定ファイルが見つからない、または内容が不正な場合は起動しません。
 
 ## 3. Zenoh publish / subscribe
 
