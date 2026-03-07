@@ -1,4 +1,8 @@
-# Default config (YAML).
+# Default config template (YAML).
+# このファイルはテンプレートです。
+# `~/.config/roboapp/damage_panel_recog_config.yaml` に
+# `damage_panel_recog_config.yaml` としてコピー/リネームして配置し、
+# 実運用時はそちらを編集してください。
 # NOTE:
 # - tracking.backend により使用するトラッキング実装が変わります。
 # - tracking.distance は backend: distance のときだけ参照されます（motpy/noopでは無視されます）。

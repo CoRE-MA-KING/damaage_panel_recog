@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import threading
 import time
+from pathlib import Path
 from typing import Any, Dict
 
 from .ui.qt_compat import configure_qt_fontdir
@@ -43,6 +45,8 @@ from .ui.gui import create_setting_gui
 
 
 VALID_TARGET_COLORS: tuple[ColorName, ColorName] = ("blue", "red")
+ROBOAPP_CONFIG_DIR = "roboapp"
+ROBOAPP_CONFIG_FILE = "damage_panel_recog_config.yaml"
 
 
 class TargetColorState:
@@ -92,8 +96,37 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--coord-transform", action="store_true", help="panel_recog_camera -> main_camera 座標変換を有効化")
     ap.add_argument("--main-overlay", action="store_true", help="main_camera重畳表示デバッグを有効化")
     ap.add_argument("--main-camera-device", default=None, help="デバッグ表示用main_cameraデバイス（例: /dev/video0）")
-    ap.add_argument("--config", default="config/default.yaml", help="設定ファイル（YAML/JSON）")
     return ap.parse_args()
+
+
+def _resolve_roboapp_config_path() -> Path:
+    # XDG_CONFIG_HOME があればそれを使い、なければ ~/.config へフォールバックする。
+    xdg_config_home = os.getenv("XDG_CONFIG_HOME", "").strip()
+    if xdg_config_home:
+        return Path(xdg_config_home).expanduser() / ROBOAPP_CONFIG_DIR / ROBOAPP_CONFIG_FILE
+    return Path.home() / ".config" / ROBOAPP_CONFIG_DIR / ROBOAPP_CONFIG_FILE
+
+
+def _load_roboapp_config_override() -> Dict[str, Any]:
+    # 既定の外部設定を読み込み、失敗時は空上書きで続行する。
+    path = _resolve_roboapp_config_path()
+    try:
+        loaded = load_config(path)
+    except FileNotFoundError:
+        print(f"[ERROR] config file not found: {path}")
+        print("[INFO] place config file at ~/.config/roboapp/damage_panel_recog_config.yaml")
+        return {}
+    except ValueError as e:
+        print(f"[ERROR] config file is invalid: {path} ({e})")
+        print("[WARN] continuing with built-in defaults.")
+        return {}
+    except Exception as e:
+        print(f"[ERROR] failed to load config file: {path} ({type(e).__name__}: {e})")
+        print("[WARN] continuing with built-in defaults.")
+        return {}
+
+    print(f"[INFO] loaded config file: {path}")
+    return loaded
 
 
 def _apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> None:
@@ -154,13 +187,19 @@ def main() -> int:
     # 入力を解釈し、実効設定（defaults <- file <- CLI）を組み立てる。
     args = parse_args()
 
-    override = load_config(args.config) if args.config else {}
+    override = _load_roboapp_config_override()
     cfg = build_effective_config(DEFAULTS, override)
     try:
         _apply_cli_overrides(cfg, args)
     except ValueError as e:
-        print(f"[ERROR] {e}")
-        return 2
+        print(f"[ERROR] config value is invalid: {e}")
+        print("[WARN] continuing with built-in defaults.")
+        cfg = build_effective_config(DEFAULTS, {})
+        try:
+            _apply_cli_overrides(cfg, args)
+        except ValueError as e2:
+            print(f"[ERROR] invalid CLI option: {e2}")
+            return 2
 
     # 表示/GUIの動作を確定し、認識カメラを開く。
     do_display = not bool(args.no_display)
