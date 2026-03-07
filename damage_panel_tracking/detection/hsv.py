@@ -7,8 +7,8 @@ import cv2
 
 def get_led_mask(hsv: np.ndarray, color: str, hsv_cfg: Dict[str, Any]) -> np.ndarray:
     # 設定済みHSV閾値から対象色の2値マスクを生成する。
-    if color in ("blue", "cyan", "mazenta"):
-        c = hsv_cfg[color]
+    if color == "blue":
+        c = hsv_cfg["blue"]
         lo = np.array([c["H_low"], c["S_low"], c["V_low"]], dtype=np.uint8)
         hi = np.array([c["H_high"], c["S_high"], c["V_high"]], dtype=np.uint8)
         return cv2.inRange(hsv, lo, hi)
