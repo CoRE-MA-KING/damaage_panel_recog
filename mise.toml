@@ -1,6 +1,6 @@
 [tools]
 buf = "latest"
-protoc = "latest"
+protoc = "32.1"
 uv = "0.9"
 
 [tasks.fetch]
