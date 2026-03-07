@@ -26,14 +26,17 @@ def pair_boxes_same_color(
     # 幾何条件を使って同色の上/下ボックスをペア化する。
     boxes_sorted = sorted(boxes_xywh, key=lambda b: b[1])  # y昇順
     paired: List[Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int]]] = []
-    used_bottom = set()
+    # 1つのLEDボックスが複数ペアに再利用されるのを防ぐ（top/bottom両方）。
+    used_indices = set()
 
     for i, top in enumerate(boxes_sorted):
+        if i in used_indices:
+            continue
         x_t, y_t, w_t, h_t = top
         best_j = -1
         best_dy = None
         for j, bottom in enumerate(boxes_sorted):
-            if j == i or j in used_bottom:
+            if j == i or j in used_indices:
                 continue
             x_b, y_b, w_b, h_b = bottom
             dy = y_b - (y_t + h_t)
@@ -50,7 +53,8 @@ def pair_boxes_same_color(
                 best_j = j
         if best_j >= 0:
             paired.append((top, boxes_sorted[best_j]))
-            used_bottom.add(best_j)
+            used_indices.add(i)
+            used_indices.add(best_j)
 
     return paired
 
