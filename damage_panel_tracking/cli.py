@@ -310,6 +310,7 @@ def main() -> int:
 
         frame_idx = 0
         last_target_color = target_color_state.get()
+        previous_target_track_id: str | None = None
 
         # メインループで取得・検出追跡・描画・必要ならpublishを行う。
         while True:
@@ -343,11 +344,13 @@ def main() -> int:
                     try:
                         # 色切替後の誤対応を避けるため、トラッカー内部状態をリセットする。
                         tracker = build_tracker(cfg["tracking"], fps=float(cfg["camera"]["capture"]["fps"]))
+                        previous_target_track_id = None
                         print(f"[INFO] tracker reset: target color switched to {target_color}")
                     except Exception as e:
                         # 再初期化に失敗した場合は追跡を一時無効化する。
                         print(f"[WARN] tracker reset failed: {e}")
                         tracker = None
+                        previous_target_track_id = None
 
             # 現在のターゲット色で1フレーム分の検出/追跡を実行する。
             frame_result = process_frame(
@@ -357,7 +360,12 @@ def main() -> int:
                 tracker=tracker,
                 dt=dt,
                 target_color=target_color,
+                previous_target_track_id=previous_target_track_id,
             )
+            if frame_result.chosen_from_tracks and frame_result.selected_track is not None:
+                previous_target_track_id = frame_result.selected_track.track_id
+            else:
+                previous_target_track_id = None
 
             # 座標変換有効時は選択ペアをmain_camera座標へ投影する。
             publish_projected = None
