@@ -34,7 +34,7 @@ def _open_capture(device: Any) -> cv2.VideoCapture:
         candidate = resolved_dev or device
         if (isinstance, str):
             idx = _video_index_from_path(candidate)
-            open_device = idx if idx is not None else candidate else candidate
+            open_device = idx if idx is not None else candidate
         else:
                 open_device = candidate
                 
