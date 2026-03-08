@@ -29,24 +29,43 @@ def _open_capture(device: Any) -> cv2.VideoCapture:
     # バックエンドのフォールバック戦略つきでカメラを開く。
     resolved_dev = dev_to_path(device)
     if isinstance(device, int):
-        open_device = device
+        primary_device: Any = device
     else:
-        candidate = resolved_dev or device
-        if isinstance(candidate, str):
-            idx = _video_index_from_path(candidate)
-            open_device = idx if idx is not None else candidate
-        else:
-            open_device = candidate
+        primary_device = resolved_dev or device
+
+    open_candidates: list[Any] = []
+
+    def _add_candidate(value: Any) -> None:
+        if value not in open_candidates:
+            open_candidates.append(value)
+
+    if isinstance(primary_device, str):
+        idx = _video_index_from_path(primary_device)
+        if idx is not None:
+            _add_candidate(idx)
+        _add_candidate(primary_device)
+    else:
+        _add_candidate(primary_device)
+
+    # シンボリックリンク名指定（例: /dev/camera_recog）も最終手段として試す。
+    if isinstance(device, str):
+        _add_candidate(device)
 
     if _prefer_v4l2_backend(device):
-        cap = cv2.VideoCapture(open_device, cv2.CAP_V4L2)
+        for cand in open_candidates:
+            cap = cv2.VideoCapture(cand, cv2.CAP_V4L2)
+            if cap.isOpened():
+                return cap
+            cap.release()
+
+    for cand in open_candidates:
+        cap = cv2.VideoCapture(cand)
         if cap.isOpened():
             return cap
-        cap.release()
-    cap = cv2.VideoCapture(open_device)
-    if cap.isOpened():
-        return cap
-    raise RuntimeError(f"Failed to open camera: {device}")
+
+    raise RuntimeError(
+        f"Failed to open camera: {device} (resolved={resolved_dev or 'N/A'}, tried={open_candidates})"
+    )
 
 
 def _fourcc_to_str(v: float) -> str:
