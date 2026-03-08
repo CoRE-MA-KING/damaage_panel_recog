@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Dict, Tuple
 
@@ -7,6 +8,7 @@ import cv2
 
 from .v4l2ctl import dev_to_path, v4l2_set
 
+_VIDEO_PATH_RE = re.compile(r"^/dev/video(\d+)$")
 
 def _prefer_v4l2_backend(device: Any) -> bool:
     # video4linuxデバイスを指している場合はCAP_V4L2を優先する。
@@ -16,6 +18,11 @@ def _prefer_v4l2_backend(device: Any) -> bool:
         return bool(dev_to_path(device))
     return False
 
+def _video_index_from_path(path: str) -> int | None:
+    match = _VIDEO_PATH_RE.match(path)
+    if not match:
+            return None
+    return int(match.group(1))
 
 def _open_capture(device: Any) -> cv2.VideoCapture:
     """Prefer V4L2 for Linux camera devices, then fall back to default backend."""
@@ -24,8 +31,13 @@ def _open_capture(device: Any) -> cv2.VideoCapture:
     if isinstance(device, int):
         open_device = device
     else:
-        open_device = resolved_dev or device
-
+        candidate = resolved_dev or device
+        if (isinstance, str):
+            idx = _video_index_from_path(candidate)
+            open_device = idx if idx is not None else candidate else candidate
+        else:
+                open_device = candidate
+                
     if _prefer_v4l2_backend(device):
         cap = cv2.VideoCapture(open_device, cv2.CAP_V4L2)
         if cap.isOpened():
