@@ -21,7 +21,7 @@ def _prefer_v4l2_backend(device: Any) -> bool:
 def _video_index_from_path(path: str) -> int | None:
     match = _VIDEO_PATH_RE.match(path)
     if not match:
-            return None
+        return None
     return int(match.group(1))
 
 def _open_capture(device: Any) -> cv2.VideoCapture:
@@ -32,12 +32,12 @@ def _open_capture(device: Any) -> cv2.VideoCapture:
         open_device = device
     else:
         candidate = resolved_dev or device
-        if (isinstance, str):
+        if isinstance(candidate, str):
             idx = _video_index_from_path(candidate)
             open_device = idx if idx is not None else candidate
         else:
-                open_device = candidate
-                
+            open_device = candidate
+
     if _prefer_v4l2_backend(device):
         cap = cv2.VideoCapture(open_device, cv2.CAP_V4L2)
         if cap.isOpened():
