@@ -9,23 +9,29 @@ from .v4l2ctl import dev_to_path, v4l2_set
 
 
 def _prefer_v4l2_backend(device: Any) -> bool:
-    # Linuxカメラデバイス指定時はCAP_V4L2を優先する。
+    # video4linuxデバイスを指している場合はCAP_V4L2を優先する。
     if isinstance(device, int):
         return True
-    if isinstance(device, str) and device.startswith("/dev/video"):
-        return True
+    if isinstance(device, str):
+        return bool(dev_to_path(device))
     return False
 
 
 def _open_capture(device: Any) -> cv2.VideoCapture:
     """Prefer V4L2 for Linux camera devices, then fall back to default backend."""
     # バックエンドのフォールバック戦略つきでカメラを開く。
+    resolved_dev = dev_to_path(device)
+    if isinstance(device, int):
+        open_device = device
+    else:
+        open_device = resolved_dev or device
+
     if _prefer_v4l2_backend(device):
-        cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
+        cap = cv2.VideoCapture(open_device, cv2.CAP_V4L2)
         if cap.isOpened():
             return cap
         cap.release()
-    cap = cv2.VideoCapture(device)
+    cap = cv2.VideoCapture(open_device)
     if cap.isOpened():
         return cap
     raise RuntimeError(f"Failed to open camera: {device}")

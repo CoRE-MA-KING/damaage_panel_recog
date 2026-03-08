@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+import os
 import shutil
+import stat
 import subprocess
 from typing import Any, Dict
 
@@ -21,13 +23,31 @@ _CTRL_BOOL_PATTERN = re.compile(
 
 def dev_to_path(dev: Any) -> str:
     """Normalize device spec (0, '0', '/dev/video0') to '/dev/videoX' for v4l2-ctl."""
-    # 複数のデバイス表記を標準的なv4l2パスにそろえる。
+    # 複数のデバイス表記を、実在するvideo4linuxノードへ正規化する。
+    def _is_video4linux_node(path: str) -> bool:
+        try:
+            st = os.stat(path)
+        except OSError:
+            return False
+        if not stat.S_ISCHR(st.st_mode):
+            return False
+        return os.major(st.st_rdev) == 81
+
     if isinstance(dev, int):
         return f"/dev/video{dev}"
     if isinstance(dev, str):
         s = dev.strip()
+        if not s:
+            return ""
         if s.isdigit():
-            return f"/dev/video{int(s)}"
+            s = f"/dev/video{int(s)}"
+
+        # /dev/camera_front や /dev/v4l/by-id/* のようなシンボリックリンクを解決する。
+        real = os.path.realpath(s)
+        if _is_video4linux_node(real):
+            return real
+
+        # 既存挙動の後方互換: /dev/videoX 形式は未解決でもそのまま返す。
         if re.match(r"^/dev/video\d+$", s):
             return s
     return ""
