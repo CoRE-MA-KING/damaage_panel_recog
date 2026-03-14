@@ -7,6 +7,8 @@ import cv2
 
 from .v4l2ctl import dev_to_path, v4l2_set
 
+_WARNED_CTRL_FAILS: set[str] = set()
+
 
 _CTRL_TO_CAP_PROP: Dict[str, int] = {
     "brightness": cv2.CAP_PROP_BRIGHTNESS,
@@ -59,6 +61,28 @@ def set_camera_control(dev_path: str, cap: cv2.VideoCapture | None, name: str, v
     v4l2_ok = v4l2_set(dev_path, name, value)
     cap_ok = _set_cap_prop(cap, name, value)
     return bool(v4l2_ok or cap_ok)
+
+
+def _apply_with_retry(
+    dev_path: str,
+    cap: cv2.VideoCapture | None,
+    name: str,
+    value: Any,
+    *,
+    retries: int = 2,
+    delay_sec: float = 0.02,
+) -> bool:
+    # 一部UVC機器では自動制御切替の直後に値が書けないため、短時間だけ再試行する。
+    for i in range(max(0, int(retries)) + 1):
+        if set_camera_control(dev_path, cap, name, value):
+            return True
+        if i < retries:
+            time.sleep(max(0.0, float(delay_sec)))
+    key = f"{dev_path}:{name}"
+    if key not in _WARNED_CTRL_FAILS:
+        _WARNED_CTRL_FAILS.add(key)
+        print(f"[WARN] failed to apply camera control: {name}={value} device={dev_path}")
+    return False
 
 
 def _prefer_v4l2_backend(device: Any) -> bool:
@@ -143,17 +167,50 @@ def apply_camera_init(dev_path: str, cap: cv2.VideoCapture, init_ctrls: Dict[str
     """Apply camera init controls once at startup."""
 
     # 順序依存のある制御を先に適用する。
+    auto_exposure = init_ctrls.get("auto_exposure")
+    wb_auto = init_ctrls.get("white_balance_automatic")
+
     if "auto_exposure" in init_ctrls:
-        set_camera_control(dev_path, cap, "auto_exposure", init_ctrls["auto_exposure"])
+        _apply_with_retry(dev_path, cap, "auto_exposure", init_ctrls["auto_exposure"], retries=3, delay_sec=0.03)
+        time.sleep(0.06)
     if "white_balance_automatic" in init_ctrls:
-        set_camera_control(dev_path, cap, "white_balance_automatic", init_ctrls["white_balance_automatic"])
+        _apply_with_retry(
+            dev_path,
+            cap,
+            "white_balance_automatic",
+            init_ctrls["white_balance_automatic"],
+            retries=3,
+            delay_sec=0.03,
+        )
+        time.sleep(0.04)
     if "focus_automatic_continuous" in init_ctrls:
-        set_camera_control(dev_path, cap, "focus_automatic_continuous", init_ctrls["focus_automatic_continuous"])
+        _apply_with_retry(
+            dev_path,
+            cap,
+            "focus_automatic_continuous",
+            init_ctrls["focus_automatic_continuous"],
+            retries=2,
+            delay_sec=0.02,
+        )
 
     # 残りの制御を適用する。
+    deferred: list[tuple[str, Any]] = []
     for k, v in init_ctrls.items():
         if k in ("auto_exposure", "white_balance_automatic", "focus_automatic_continuous"):
             continue
-        set_camera_control(dev_path, cap, k, v)
+        if k == "exposure_time_absolute" and auto_exposure is not None and int(auto_exposure) != 1:
+            # auto_exposure=manual(1) 以外では通常inactiveになるため後段適用をスキップする。
+            continue
+        if k == "white_balance_temperature" and wb_auto is not None and int(wb_auto) != 0:
+            # white_balance_automatic=0(手動) でない場合は通常inactiveになる。
+            continue
+        if k in ("exposure_time_absolute", "white_balance_temperature"):
+            deferred.append((k, v))
+            continue
+        _apply_with_retry(dev_path, cap, k, v, retries=2, delay_sec=0.02)
+
+    # auto系切替直後に反映されにくい制御は最後にまとめて再試行する。
+    for k, v in deferred:
+        _apply_with_retry(dev_path, cap, k, v, retries=4, delay_sec=0.03)
 
     time.sleep(0.05)
