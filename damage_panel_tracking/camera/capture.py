@@ -8,6 +8,59 @@ import cv2
 from .v4l2ctl import dev_to_path, v4l2_set
 
 
+_CTRL_TO_CAP_PROP: Dict[str, int] = {
+    "brightness": cv2.CAP_PROP_BRIGHTNESS,
+    "contrast": cv2.CAP_PROP_CONTRAST,
+    "saturation": cv2.CAP_PROP_SATURATION,
+    "hue": cv2.CAP_PROP_HUE,
+    "gain": cv2.CAP_PROP_GAIN,
+    "gamma": cv2.CAP_PROP_GAMMA,
+    "sharpness": cv2.CAP_PROP_SHARPNESS,
+    "exposure_time_absolute": cv2.CAP_PROP_EXPOSURE,
+    "white_balance_temperature": cv2.CAP_PROP_WB_TEMPERATURE,
+    "white_balance_automatic": cv2.CAP_PROP_AUTO_WB,
+    "focus_automatic_continuous": cv2.CAP_PROP_AUTOFOCUS,
+}
+
+
+def _to_cap_prop_value(name: str, value: Any) -> float:
+    # OpenCVの値スケール差分（特にauto_exposure）を吸収する。
+    if name == "auto_exposure":
+        iv = int(value)
+        if iv == 1:
+            return 0.25  # Manual mode (OpenCV/V4L2 convention)
+        if iv == 3:
+            return 0.75  # Auto mode (OpenCV/V4L2 convention)
+        return float(iv)
+    return float(value)
+
+
+def _cap_prop_for(name: str) -> int | None:
+    if name == "auto_exposure":
+        return cv2.CAP_PROP_AUTO_EXPOSURE
+    return _CTRL_TO_CAP_PROP.get(name)
+
+
+def _set_cap_prop(cap: cv2.VideoCapture | None, name: str, value: Any) -> bool:
+    # v4l2-ctl失敗時のフォールバックとしてOpenCVプロパティでも適用を試みる。
+    if cap is None:
+        return False
+    prop_id = _cap_prop_for(name)
+    if prop_id is None:
+        return False
+    try:
+        return bool(cap.set(prop_id, _to_cap_prop_value(name, value)))
+    except Exception:
+        return False
+
+
+def set_camera_control(dev_path: str, cap: cv2.VideoCapture | None, name: str, value: Any) -> bool:
+    """Apply camera control using v4l2-ctl first, then CAP_PROP fallback."""
+    v4l2_ok = v4l2_set(dev_path, name, value)
+    cap_ok = _set_cap_prop(cap, name, value)
+    return bool(v4l2_ok or cap_ok)
+
+
 def _prefer_v4l2_backend(device: Any) -> bool:
     # video4linuxデバイスを指している場合はCAP_V4L2を優先する。
     if isinstance(device, int):
@@ -91,40 +144,16 @@ def apply_camera_init(dev_path: str, cap: cv2.VideoCapture, init_ctrls: Dict[str
 
     # 順序依存のある制御を先に適用する。
     if "auto_exposure" in init_ctrls:
-        v4l2_set(dev_path, "auto_exposure", init_ctrls["auto_exposure"])
+        set_camera_control(dev_path, cap, "auto_exposure", init_ctrls["auto_exposure"])
     if "white_balance_automatic" in init_ctrls:
-        v4l2_set(dev_path, "white_balance_automatic", init_ctrls["white_balance_automatic"])
+        set_camera_control(dev_path, cap, "white_balance_automatic", init_ctrls["white_balance_automatic"])
     if "focus_automatic_continuous" in init_ctrls:
-        v4l2_set(dev_path, "focus_automatic_continuous", init_ctrls["focus_automatic_continuous"])
+        set_camera_control(dev_path, cap, "focus_automatic_continuous", init_ctrls["focus_automatic_continuous"])
 
     # 残りの制御を適用する。
     for k, v in init_ctrls.items():
         if k in ("auto_exposure", "white_balance_automatic", "focus_automatic_continuous"):
             continue
-        v4l2_set(dev_path, k, v)
-
-    # v4l2制御が使えない場合はOpenCVプロパティへフォールバックする。
-    try:
-        if "brightness" in init_ctrls:
-            cap.set(cv2.CAP_PROP_BRIGHTNESS, float(init_ctrls["brightness"]))
-        if "contrast" in init_ctrls:
-            cap.set(cv2.CAP_PROP_CONTRAST, float(init_ctrls["contrast"]))
-        if "saturation" in init_ctrls:
-            cap.set(cv2.CAP_PROP_SATURATION, float(init_ctrls["saturation"]))
-        if "gain" in init_ctrls:
-            cap.set(cv2.CAP_PROP_GAIN, float(init_ctrls["gain"]))
-        if "gamma" in init_ctrls:
-            cap.set(cv2.CAP_PROP_GAMMA, float(init_ctrls["gamma"]))
-        if "sharpness" in init_ctrls:
-            cap.set(cv2.CAP_PROP_SHARPNESS, float(init_ctrls["sharpness"]))
-        if "exposure_time_absolute" in init_ctrls:
-            cap.set(cv2.CAP_PROP_EXPOSURE, float(init_ctrls["exposure_time_absolute"]))
-        if "white_balance_temperature" in init_ctrls:
-            try:
-                cap.set(cv2.CAP_PROP_WB_TEMPERATURE, float(init_ctrls["white_balance_temperature"]))
-            except Exception:
-                pass
-    except Exception:
-        pass
+        set_camera_control(dev_path, cap, k, v)
 
     time.sleep(0.05)

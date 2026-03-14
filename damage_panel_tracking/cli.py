@@ -22,7 +22,7 @@ from msg import (
 
 from damage_panel_tracking.publish.zenoh_pub import LatestFramePublisher, ZenohSession
 
-from .camera.capture import setup_camera
+from .camera.capture import apply_camera_init, setup_camera
 from .config import build_effective_config, load_config
 from .defaults import DEFAULTS
 from .detection.types import ColorName
@@ -231,6 +231,7 @@ def main() -> int:
     viz: TrackVizState | None = None
     transform_session: TransformSession | None = None
     cap: cv2.VideoCapture | None = None
+    gui_poller = None
     win_name = str(cfg["ui"]["window_name"])
 
     try:
@@ -243,12 +244,20 @@ def main() -> int:
             cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
 
         if use_gui:
-            create_setting_gui(win_name, dev_path, cfg["detection"]["hsv"], cfg["camera"]["init_controls"])
+            gui_poller = create_setting_gui(
+                win_name,
+                dev_path,
+                cap,
+                cfg["detection"]["hsv"],
+                cfg["camera"]["init_controls"],
+            )
 
         viz = TrackVizState(history_len=int(cfg["tracking"]["history_len"]))
 
         # 実際にネゴシエーションされた結果の画像サイズを得る（サイズ取得専用）
         negotiated_panel_frame = _read_first_frame(cap, camera_label="panel_recog_camera")
+        # 一部カメラはストリーミング開始後に制御値が戻るため、最初のフレーム取得後に再適用する。
+        apply_camera_init(dev_path, cap, cfg["camera"]["init_controls"])
         panel_frame_size = (int(negotiated_panel_frame.shape[1]), int(negotiated_panel_frame.shape[0]))
 
         # publish有効時は非同期publisherプロセスを起動する。
@@ -318,7 +327,12 @@ def main() -> int:
             # フレーム取得
             ret, frame = cap.read()
             if not ret:
-                continue            
+                if do_display:
+                    cv2.waitKey(1)
+                continue
+
+            if gui_poller is not None:
+                gui_poller()
 
             # 座標変換セッションが有効な場合、デバッグ用main_cameraフレームを取得
             main_frame = None

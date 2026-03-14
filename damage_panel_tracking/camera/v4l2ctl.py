@@ -5,6 +5,7 @@ import os
 import shutil
 import stat
 import subprocess
+import time
 from typing import Any, Dict
 
 
@@ -19,6 +20,30 @@ _CTRL_BOOL_PATTERN = re.compile(
     r".*default=([-]?\d+)\s+value=([-]?\d+)"
     r"(?:\s+flags=(.+))?\s*$"
 )
+
+_V4L2_CTL_CANDIDATES: tuple[str, ...] = (
+    "/usr/bin/v4l2-ctl",
+    "/usr/local/bin/v4l2-ctl",
+    "/bin/v4l2-ctl",
+    "/usr/sbin/v4l2-ctl",
+    "/sbin/v4l2-ctl",
+)
+
+
+def _resolve_v4l2_ctl_path() -> str:
+    # PATHが限定される環境でも実行できるよう、一般的な絶対パスを順に試す。
+    env_path = os.getenv("V4L2_CTL_PATH", "").strip()
+    if env_path and os.path.isfile(env_path) and os.access(env_path, os.X_OK):
+        return env_path
+
+    from_path = shutil.which("v4l2-ctl")
+    if from_path:
+        return from_path
+
+    for path in _V4L2_CTL_CANDIDATES:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return ""
 
 
 def dev_to_path(dev: Any) -> str:
@@ -55,17 +80,18 @@ def dev_to_path(dev: Any) -> str:
 
 def has_v4l2_ctl() -> bool:
     # この環境でv4l2-ctlが利用可能か確認する。
-    return shutil.which("v4l2-ctl") is not None
+    return bool(_resolve_v4l2_ctl_path())
 
 
 def v4l2_list_ctrls(dev_path: str) -> Dict[str, Dict[str, Any]]:
     """List V4L2 controls with range/default/current values."""
     # v4l2-ctlの出力を解析し、トラックバー範囲計算に使う。
-    if not dev_path or not has_v4l2_ctl():
+    v4l2_ctl_path = _resolve_v4l2_ctl_path()
+    if not dev_path or not v4l2_ctl_path:
         return {}
     try:
         result = subprocess.run(
-            ["v4l2-ctl", "-d", dev_path, "--list-ctrls"],
+            [v4l2_ctl_path, "-d", dev_path, "--list-ctrls"],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
@@ -113,15 +139,23 @@ def v4l2_list_ctrls(dev_path: str) -> Dict[str, Dict[str, Any]]:
 def v4l2_set(dev_path: str, name: str, value: Any) -> bool:
     """Set a V4L2 control. Returns True on success, False otherwise."""
     # v4l2-ctlで1つのカメラ制御をベストエフォートで適用する。
-    if not dev_path or not has_v4l2_ctl():
+    v4l2_ctl_path = _resolve_v4l2_ctl_path()
+    if not dev_path or not v4l2_ctl_path:
         return False
-    try:
-        r = subprocess.run(
-            ["v4l2-ctl", "-d", dev_path, f"--set-ctrl={name}={value}"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        return r.returncode == 0
-    except Exception:
-        return False
+    cmd = [v4l2_ctl_path, "-d", dev_path, f"--set-ctrl={name}={value}"]
+    retries = 2
+    for attempt in range(retries + 1):
+        try:
+            r = subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if r.returncode == 0:
+                return True
+        except Exception:
+            pass
+        if attempt < retries:
+            time.sleep(0.01)
+    return False
