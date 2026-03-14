@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict
 
 import cv2
 
-from ..camera.capture import set_camera_control
+from ..camera.capture import CameraControlManager, set_camera_control
 from ..camera.v4l2ctl import v4l2_list_ctrls
 
 
@@ -50,6 +50,7 @@ def create_setting_gui(
     win_name: str,
     dev_path: str,
     cap: cv2.VideoCapture,
+    control_manager: CameraControlManager | None,
     hsv_cfg: Dict[str, Any],
     init_ctrls: Dict[str, Any],
 ) -> Callable[[], None]:
@@ -92,21 +93,31 @@ def create_setting_gui(
         value = clamp(name, value)
         init_ctrls[name] = value
 
+        def _apply(name: str, value: int) -> None:
+            if control_manager is not None:
+                control_manager.apply(name, value)
+                return
+            set_camera_control(dev_path, cap, name, value)
+
         if name == "auto_exposure":
-            set_camera_control(dev_path, cap, "auto_exposure", value)
+            _apply("auto_exposure", value)
             time.sleep(0.02)
             if value == 1 and "exposure_time_absolute" in init_ctrls:
-                set_camera_control(dev_path, cap, "exposure_time_absolute", int(init_ctrls["exposure_time_absolute"]))
+                _apply("exposure_time_absolute", int(init_ctrls["exposure_time_absolute"]))
+            elif control_manager is not None:
+                control_manager.clear_target("exposure_time_absolute")
             return
 
         if name == "white_balance_automatic":
-            set_camera_control(dev_path, cap, "white_balance_automatic", value)
+            _apply("white_balance_automatic", value)
             time.sleep(0.02)
             if value == 0 and "white_balance_temperature" in init_ctrls:
-                set_camera_control(dev_path, cap, "white_balance_temperature", int(init_ctrls["white_balance_temperature"]))
+                _apply("white_balance_temperature", int(init_ctrls["white_balance_temperature"]))
+            elif control_manager is not None:
+                control_manager.clear_target("white_balance_temperature")
             return
 
-        set_camera_control(dev_path, cap, name, value)
+        _apply(name, value)
 
     def make_ctrl_trackbar(name: str) -> None:
         mn, mx = ctrl_range(name)

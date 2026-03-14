@@ -9,6 +9,7 @@ import numpy as np
 
 from ..camera.capture import setup_camera
 from ..detection.types import PairMeta
+from ..ui.qt_compat import start_highgui_event_thread
 from .projection import (
     ProjectedPanel,
     ProjectionModel,
@@ -148,6 +149,7 @@ class TransformSession:
         debug_main_frame_size = (int(next_debug_main_frame.shape[1]), int(next_debug_main_frame.shape[0]))
         if do_display:
             cv2.namedWindow(debug_main_window_name, cv2.WINDOW_NORMAL)
+            start_highgui_event_thread()
 
         use_publish_params = bool(debug_overlay_cfg.get("use_publish_main_camera_params", True))
         if use_publish_params:

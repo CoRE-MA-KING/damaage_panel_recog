@@ -136,6 +136,39 @@ def v4l2_list_ctrls(dev_path: str) -> Dict[str, Dict[str, Any]]:
     return info
 
 
+def v4l2_get(dev_path: str, names: list[str] | tuple[str, ...]) -> Dict[str, int]:
+    """Read current V4L2 control values for the requested names."""
+    v4l2_ctl_path = _resolve_v4l2_ctl_path()
+    if not dev_path or not v4l2_ctl_path:
+        return {}
+
+    req_names = [str(name).strip() for name in names if str(name).strip()]
+    if not req_names:
+        return {}
+
+    try:
+        result = subprocess.run(
+            [v4l2_ctl_path, "-d", dev_path, f"--get-ctrl={','.join(req_names)}"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+    except Exception:
+        return {}
+
+    values: Dict[str, int] = {}
+    for line in (result.stdout or "").splitlines():
+        if ":" not in line:
+            continue
+        name, raw = line.split(":", 1)
+        match = re.search(r"[-]?\d+", raw)
+        if not match:
+            continue
+        values[name.strip()] = int(match.group(0))
+    return values
+
+
 def v4l2_set(dev_path: str, name: str, value: Any) -> bool:
     """Set a V4L2 control. Returns True on success, False otherwise."""
     # v4l2-ctlで1つのカメラ制御をベストエフォートで適用する。

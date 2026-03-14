@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict
 
-from .ui.qt_compat import configure_qt_fontdir
+from .ui.qt_compat import configure_qt_fontdir, start_highgui_event_thread
 
 configure_qt_fontdir()
 
@@ -22,7 +22,7 @@ from msg import (
 
 from damage_panel_tracking.publish.zenoh_pub import LatestFramePublisher, ZenohSession
 
-from .camera.capture import apply_camera_init, setup_camera
+from .camera.capture import CameraControlManager, apply_camera_init, setup_camera
 from .config import build_effective_config, load_config
 from .defaults import DEFAULTS
 from .detection.types import ColorName
@@ -231,6 +231,7 @@ def main() -> int:
     viz: TrackVizState | None = None
     transform_session: TransformSession | None = None
     cap: cv2.VideoCapture | None = None
+    control_manager: CameraControlManager | None = None
     gui_poller = None
     win_name = str(cfg["ui"]["window_name"])
 
@@ -238,16 +239,20 @@ def main() -> int:
         # 認識カメラを開いて表示系を初期化する。
         device = normalize_device_arg(cfg["camera"]["device"])
         cap, dev_path = setup_camera(device, cfg["camera"]["capture"], cfg["camera"]["init_controls"])
+        control_manager = CameraControlManager(dev_path, cap)
+        control_manager.track_init_controls(cfg["camera"]["init_controls"], attempts=10)
 
         # 表示ウィンドウと任意の調整用GUIを準備する。
         if do_display or use_gui:
             cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+            start_highgui_event_thread()
 
         if use_gui:
             gui_poller = create_setting_gui(
                 win_name,
                 dev_path,
                 cap,
+                control_manager,
                 cfg["detection"]["hsv"],
                 cfg["camera"]["init_controls"],
             )
@@ -258,6 +263,7 @@ def main() -> int:
         negotiated_panel_frame = _read_first_frame(cap, camera_label="panel_recog_camera")
         # 一部カメラはストリーミング開始後に制御値が戻るため、最初のフレーム取得後に再適用する。
         apply_camera_init(dev_path, cap, cfg["camera"]["init_controls"])
+        control_manager.track_init_controls(cfg["camera"]["init_controls"], attempts=10)
         panel_frame_size = (int(negotiated_panel_frame.shape[1]), int(negotiated_panel_frame.shape[0]))
 
         # publish有効時は非同期publisherプロセスを起動する。
@@ -330,6 +336,9 @@ def main() -> int:
                 if do_display:
                     cv2.waitKey(1)
                 continue
+
+            if control_manager is not None:
+                control_manager.reconcile()
 
             if gui_poller is not None:
                 gui_poller()
