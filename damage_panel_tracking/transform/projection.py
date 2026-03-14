@@ -19,7 +19,9 @@ class IntrinsicsData:
 @dataclass(frozen=True)
 class ProjectionModel:
     panel_K: np.ndarray
+    panel_dist: np.ndarray
     main_K: np.ndarray
+    main_dist: np.ndarray
     R_panel_to_main: np.ndarray
     t_panel_to_main: np.ndarray
     panel_vertical_span_m: float
@@ -82,7 +84,11 @@ def load_intrinsics(path: str) -> IntrinsicsData:
         fs.release()
 
     size = (width, height) if width is not None and height is not None and width > 0 and height > 0 else None
-    return IntrinsicsData(K=K, dist=dist, size=size)
+    return IntrinsicsData(
+        K=np.asarray(K, dtype=np.float64),
+        dist=np.asarray(dist, dtype=np.float64).reshape(1, -1),
+        size=size,
+    )
 
 
 def load_extrinsics(path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -156,7 +162,9 @@ def build_projection_model(
 
     return ProjectionModel(
         panel_K=np.asarray(panel_K, dtype=np.float64),
+        panel_dist=panel_intr.dist,
         main_K=np.asarray(main_K, dtype=np.float64),
+        main_dist=main_intr.dist,
         R_panel_to_main=np.asarray(R, dtype=np.float64),
         t_panel_to_main=t_col,
         panel_vertical_span_m=float(panel_vertical_span_m),
@@ -179,28 +187,36 @@ def _estimate_depth_from_vertical(top_xy: tuple[float, float], bottom_xy: tuple[
     return float(Z), h_px
 
 
-def _backproject_pixel_to_3d(u: float, v: float, Z: float, K: np.ndarray) -> np.ndarray:
-    # 1画素を深度Z平面上の3D点へ逆投影する。
-    fx = float(K[0, 0])
-    fy = float(K[1, 1])
-    cx = float(K[0, 2])
-    cy = float(K[1, 2])
-    x = (u - cx) / fx
-    y = (v - cy) / fy
-    return np.array([[Z * x], [Z * y], [Z]], dtype=np.float64)
+def _undistort_pixel_with_K(u: float, v: float, K: np.ndarray, dist: np.ndarray) -> tuple[float, float]:
+    # 歪みを補正し、同一K画素系での座標へ変換する。
+    pts = np.array([[[u, v]]], dtype=np.float64)
+    und = cv2.undistortPoints(pts, K, dist, P=K)
+    uu, vv = und.reshape(-1, 2)[0]
+    return float(uu), float(vv)
 
 
-def _project_3d_to_pixel(P: np.ndarray, K: np.ndarray) -> tuple[float, float] | None:
-    # 3D点を1台のカメラ画素座標へ投影する。
+def _backproject_pixel_to_3d(u: float, v: float, Z: float, K: np.ndarray, dist: np.ndarray) -> np.ndarray:
+    # 1画素を歪み補正したうえで深度Z平面上の3D点へ逆投影する。
+    pts = np.array([[[u, v]]], dtype=np.float64)
+    und_norm = cv2.undistortPoints(pts, K, dist)
+    x, y = und_norm.reshape(-1, 2)[0]
+    return np.array([[Z * float(x)], [Z * float(y)], [Z]], dtype=np.float64)
+
+
+def _project_3d_to_pixel(P: np.ndarray, K: np.ndarray, dist: np.ndarray) -> tuple[float, float] | None:
+    # 3D点を歪み込みでカメラ画素座標へ投影する。
     X, Y, Z = float(P[0, 0]), float(P[1, 0]), float(P[2, 0])
     if Z <= 1e-6:
         return None
-    fx = float(K[0, 0])
-    fy = float(K[1, 1])
-    cx = float(K[0, 2])
-    cy = float(K[1, 2])
-    u = fx * (X / Z) + cx
-    v = fy * (Y / Z) + cy
+    obj = np.array([[X, Y, Z]], dtype=np.float64)
+    img_pts, _ = cv2.projectPoints(
+        obj,
+        rvec=np.zeros((3, 1), dtype=np.float64),
+        tvec=np.zeros((3, 1), dtype=np.float64),
+        cameraMatrix=K,
+        distCoeffs=dist,
+    )
+    u, v = img_pts.reshape(-1, 2)[0]
     return float(u), float(v)
 
 
@@ -209,9 +225,11 @@ def project_pair_to_main_camera(pair: PairMeta, model: ProjectionModel) -> Proje
     top_center = _center_from_xywh(pair.top_xywh)
     bottom_center = _center_from_xywh(pair.bottom_xywh)
 
+    top_center_und = _undistort_pixel_with_K(top_center[0], top_center[1], model.panel_K, model.panel_dist)
+    bottom_center_und = _undistort_pixel_with_K(bottom_center[0], bottom_center[1], model.panel_K, model.panel_dist)
     depth = _estimate_depth_from_vertical(
-        top_center,
-        bottom_center,
+        top_center_und,
+        bottom_center_und,
         fy_px=float(model.panel_K[1, 1]),
         span_m=model.panel_vertical_span_m,
     )
@@ -221,9 +239,9 @@ def project_pair_to_main_camera(pair: PairMeta, model: ProjectionModel) -> Proje
 
     uc = 0.5 * (top_center[0] + bottom_center[0])
     vc = 0.5 * (top_center[1] + bottom_center[1])
-    P_panel = _backproject_pixel_to_3d(uc, vc, Z, model.panel_K)
+    P_panel = _backproject_pixel_to_3d(uc, vc, Z, model.panel_K, model.panel_dist)
     P_main = model.R_panel_to_main @ P_panel + model.t_panel_to_main
-    uv_main = _project_3d_to_pixel(P_main, model.main_K)
+    uv_main = _project_3d_to_pixel(P_main, model.main_K, model.main_dist)
     if uv_main is None:
         return None
 
@@ -236,9 +254,9 @@ def project_pair_to_main_camera(pair: PairMeta, model: ProjectionModel) -> Proje
     ]
     proj_corners: list[tuple[float, float]] = []
     for (u, v) in corners_panel:
-        P_panel_c = _backproject_pixel_to_3d(float(u), float(v), Z, model.panel_K)
+        P_panel_c = _backproject_pixel_to_3d(float(u), float(v), Z, model.panel_K, model.panel_dist)
         P_main_c = model.R_panel_to_main @ P_panel_c + model.t_panel_to_main
-        uv_main_c = _project_3d_to_pixel(P_main_c, model.main_K)
+        uv_main_c = _project_3d_to_pixel(P_main_c, model.main_K, model.main_dist)
         if uv_main_c is not None:
             proj_corners.append(uv_main_c)
 
