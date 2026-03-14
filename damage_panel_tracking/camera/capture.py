@@ -19,7 +19,6 @@ def _prefer_v4l2_backend(device: Any) -> bool:
 
 def _open_capture(device: Any) -> cv2.VideoCapture:
     """Prefer V4L2 for Linux camera devices, then fall back to default backend."""
-    # バックエンドのフォールバック戦略つきでカメラを開く。
     resolved_dev = dev_to_path(device)
     if isinstance(device, int):
         open_device = device
@@ -29,11 +28,19 @@ def _open_capture(device: Any) -> cv2.VideoCapture:
     if _prefer_v4l2_backend(device):
         cap = cv2.VideoCapture(open_device, cv2.CAP_V4L2)
         if cap.isOpened():
+            # --- ここでチェック (V4L2成功時) ---
+            print(f"DEBUG: Opened with V4L2 path. Backend: {cap.getBackendName()}")
             return cap
+        print("DEBUG: V4L2 open failed, trying fallback...")
         cap.release()
+
+    # フォールバック処理
     cap = cv2.VideoCapture(open_device)
     if cap.isOpened():
+        # --- ここでチェック (フォールバック成功時) ---
+        print(f"DEBUG: Opened with Default path. Backend: {cap.getBackendName()}")
         return cap
+
     raise RuntimeError(f"Failed to open camera: {device}")
 
 
