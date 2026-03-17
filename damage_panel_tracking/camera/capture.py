@@ -5,7 +5,7 @@ from typing import Any, Dict, Tuple
 
 import cv2
 
-from .v4l2ctl import dev_to_path, v4l2_set
+from .v4l2ctl import dev_to_path, has_v4l2_ctl, v4l2_set
 
 
 def _prefer_v4l2_backend(device: Any) -> bool:
@@ -86,45 +86,98 @@ def setup_camera(device: Any, capture_cfg: Dict[str, Any], init_ctrls: Dict[str,
     return cap, dev_path
 
 
+def _v4l2_set_with_retry(
+    dev_path: str,
+    name: str,
+    value: Any,
+    *,
+    retries: int = 3,
+    delay_s: float = 0.03,
+) -> bool:
+    # 一時的な未反映に備えて、短い間隔で再試行する。
+    attempts = max(1, int(retries))
+    for _ in range(attempts):
+        if v4l2_set(dev_path, name, value):
+            return True
+        time.sleep(delay_s)
+    return False
+
+
+def _apply_opencv_fallback(cap: cv2.VideoCapture, name: str, value: Any) -> None:
+    # v4l2-ctlが使えない/失敗した制御のみ、OpenCVプロパティへフォールバックする。
+    try:
+        if name == "brightness":
+            cap.set(cv2.CAP_PROP_BRIGHTNESS, float(value))
+        elif name == "contrast":
+            cap.set(cv2.CAP_PROP_CONTRAST, float(value))
+        elif name == "saturation":
+            cap.set(cv2.CAP_PROP_SATURATION, float(value))
+        elif name == "gain":
+            cap.set(cv2.CAP_PROP_GAIN, float(value))
+        elif name == "gamma":
+            cap.set(cv2.CAP_PROP_GAMMA, float(value))
+        elif name == "sharpness":
+            cap.set(cv2.CAP_PROP_SHARPNESS, float(value))
+        elif name == "exposure_time_absolute":
+            cap.set(cv2.CAP_PROP_EXPOSURE, float(value))
+        elif name == "white_balance_temperature":
+            wb_prop = getattr(cv2, "CAP_PROP_WB_TEMPERATURE", None)
+            if wb_prop is not None:
+                cap.set(wb_prop, float(value))
+    except Exception:
+        pass
+
+
 def apply_camera_init(dev_path: str, cap: cv2.VideoCapture, init_ctrls: Dict[str, Any]) -> None:
     """Apply camera init controls once at startup."""
 
-    # 順序依存のある制御を先に適用する。
-    if "auto_exposure" in init_ctrls:
-        v4l2_set(dev_path, "auto_exposure", init_ctrls["auto_exposure"])
-    if "white_balance_automatic" in init_ctrls:
-        v4l2_set(dev_path, "white_balance_automatic", init_ctrls["white_balance_automatic"])
-    if "focus_automatic_continuous" in init_ctrls:
-        v4l2_set(dev_path, "focus_automatic_continuous", init_ctrls["focus_automatic_continuous"])
+    fallback_names: set[str] = set()
+    v4l2_available = bool(dev_path) and has_v4l2_ctl()
+    ordered_controls = ("auto_exposure", "white_balance_automatic", "focus_automatic_continuous")
 
-    # 残りの制御を適用する。
-    for k, v in init_ctrls.items():
-        if k in ("auto_exposure", "white_balance_automatic", "focus_automatic_continuous"):
+    if v4l2_available:
+        # 順序依存のある制御を先に適用する。
+        for ctrl_name in ordered_controls:
+            if ctrl_name not in init_ctrls:
+                continue
+            if not _v4l2_set_with_retry(dev_path, ctrl_name, init_ctrls[ctrl_name]):
+                fallback_names.add(ctrl_name)
+
+        # 残りの制御を適用する。
+        for ctrl_name, value in init_ctrls.items():
+            if ctrl_name in ordered_controls:
+                continue
+            if ctrl_name == "exposure_time_absolute" and "auto_exposure" in init_ctrls:
+                _v4l2_set_with_retry(dev_path, "auto_exposure", init_ctrls["auto_exposure"])
+                time.sleep(0.02)
+            if ctrl_name == "white_balance_temperature" and "white_balance_automatic" in init_ctrls:
+                _v4l2_set_with_retry(dev_path, "white_balance_automatic", init_ctrls["white_balance_automatic"])
+                time.sleep(0.02)
+            if not _v4l2_set_with_retry(dev_path, ctrl_name, value):
+                fallback_names.add(ctrl_name)
+
+        # 依存関係のある組を最後にもう一度適用し、起動直後の取りこぼしを減らす。
+        if "auto_exposure" in init_ctrls and "exposure_time_absolute" in init_ctrls:
+            _v4l2_set_with_retry(dev_path, "auto_exposure", init_ctrls["auto_exposure"])
+            time.sleep(0.02)
+            if not _v4l2_set_with_retry(dev_path, "exposure_time_absolute", init_ctrls["exposure_time_absolute"]):
+                fallback_names.add("exposure_time_absolute")
+        if "white_balance_automatic" in init_ctrls and "white_balance_temperature" in init_ctrls:
+            _v4l2_set_with_retry(dev_path, "white_balance_automatic", init_ctrls["white_balance_automatic"])
+            time.sleep(0.02)
+            if not _v4l2_set_with_retry(dev_path, "white_balance_temperature", init_ctrls["white_balance_temperature"]):
+                fallback_names.add("white_balance_temperature")
+    else:
+        fallback_names = set(init_ctrls.keys())
+
+    if v4l2_available and fallback_names:
+        failed_controls = ", ".join(sorted(fallback_names))
+        print(f"[WARN] v4l2 init controls partially failed; fallback to OpenCV props: {failed_controls}")
+
+    # v4l2-ctlが使えない/失敗した制御のみ、OpenCVプロパティへフォールバックする。
+    for ctrl_name, value in init_ctrls.items():
+        if ctrl_name not in fallback_names:
             continue
-        v4l2_set(dev_path, k, v)
-
-    # v4l2制御が使えない場合はOpenCVプロパティへフォールバックする。
-    try:
-        if "brightness" in init_ctrls:
-            cap.set(cv2.CAP_PROP_BRIGHTNESS, float(init_ctrls["brightness"]))
-        if "contrast" in init_ctrls:
-            cap.set(cv2.CAP_PROP_CONTRAST, float(init_ctrls["contrast"]))
-        if "saturation" in init_ctrls:
-            cap.set(cv2.CAP_PROP_SATURATION, float(init_ctrls["saturation"]))
-        if "gain" in init_ctrls:
-            cap.set(cv2.CAP_PROP_GAIN, float(init_ctrls["gain"]))
-        if "gamma" in init_ctrls:
-            cap.set(cv2.CAP_PROP_GAMMA, float(init_ctrls["gamma"]))
-        if "sharpness" in init_ctrls:
-            cap.set(cv2.CAP_PROP_SHARPNESS, float(init_ctrls["sharpness"]))
-        if "exposure_time_absolute" in init_ctrls:
-            cap.set(cv2.CAP_PROP_EXPOSURE, float(init_ctrls["exposure_time_absolute"]))
-        if "white_balance_temperature" in init_ctrls:
-            try:
-                cap.set(cv2.CAP_PROP_WB_TEMPERATURE, float(init_ctrls["white_balance_temperature"]))
-            except Exception:
-                pass
-    except Exception:
-        pass
+        _apply_opencv_fallback(cap, ctrl_name, value)
 
     time.sleep(0.05)

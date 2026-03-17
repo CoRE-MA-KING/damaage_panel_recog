@@ -50,17 +50,28 @@ def create_setting_gui(win_name: str, dev_path: str, hsv_cfg: Dict[str, Any], in
 
     ctrl_info = v4l2_list_ctrls(dev_path)
 
-    def ctrl_range(name: str) -> tuple[int, int]:
+    def ctrl_spec(name: str) -> tuple[int, int, int]:
         # 実機値の範囲を優先し、取得できない場合は既知のフォールバックを使う。
         if name in ctrl_info and ctrl_info[name].get("min") is not None and ctrl_info[name].get("max") is not None:
             mn = int(ctrl_info[name]["min"])
             mx = int(ctrl_info[name]["max"])
-            return (mn, mx) if mn <= mx else (mx, mn)
-        return FALLBACK_CTRL_RANGES.get(name, (0, 255))
+            if mn > mx:
+                mn, mx = mx, mn
+            step_raw = int(ctrl_info[name].get("step", 1))
+            step = max(1, abs(step_raw))
+            return mn, mx, step
+        mn, mx = FALLBACK_CTRL_RANGES.get(name, (0, 255))
+        if mn > mx:
+            mn, mx = mx, mn
+        return mn, mx, 1
 
     def clamp(name: str, v: int) -> int:
-        mn, mx = ctrl_range(name)
-        return max(mn, min(mx, int(v)))
+        mn, mx, step = ctrl_spec(name)
+        clamped = max(mn, min(mx, int(v)))
+        if step <= 1:
+            return clamped
+        aligned = mn + int(round((clamped - mn) / float(step))) * step
+        return max(mn, min(mx, aligned))
 
     def apply_ctrl(name: str, value: int) -> None:
         value = clamp(name, value)
@@ -73,6 +84,13 @@ def create_setting_gui(win_name: str, dev_path: str, hsv_cfg: Dict[str, Any], in
                 v4l2_set(dev_path, "exposure_time_absolute", int(init_ctrls["exposure_time_absolute"]))
             return
 
+        if name == "exposure_time_absolute":
+            if "auto_exposure" in init_ctrls:
+                v4l2_set(dev_path, "auto_exposure", int(init_ctrls["auto_exposure"]))
+                time.sleep(0.02)
+            v4l2_set(dev_path, "exposure_time_absolute", value)
+            return
+
         if name == "white_balance_automatic":
             v4l2_set(dev_path, "white_balance_automatic", value)
             time.sleep(0.02)
@@ -80,18 +98,26 @@ def create_setting_gui(win_name: str, dev_path: str, hsv_cfg: Dict[str, Any], in
                 v4l2_set(dev_path, "white_balance_temperature", int(init_ctrls["white_balance_temperature"]))
             return
 
+        if name == "white_balance_temperature":
+            if "white_balance_automatic" in init_ctrls:
+                v4l2_set(dev_path, "white_balance_automatic", int(init_ctrls["white_balance_automatic"]))
+                time.sleep(0.02)
+            v4l2_set(dev_path, "white_balance_temperature", value)
+            return
+
         v4l2_set(dev_path, name, value)
 
     def make_ctrl_trackbar(name: str) -> None:
-        mn, mx = ctrl_range(name)
+        mn, mx, step = ctrl_spec(name)
         init = clamp(name, int(init_ctrls.get(name, mn)))
-        tb_max = max(1, mx - mn)
+        tb_max = max(1, int((mx - mn) // step))
+        init_pos = int((init - mn) // step)
 
         def on_change(pos: int) -> None:
-            apply_ctrl(name, int(pos) + mn)
+            apply_ctrl(name, mn + int(pos) * step)
 
-        cv2.createTrackbar(name, win_name, int(init - mn), int(tb_max), on_change)
-        on_change(int(init - mn))
+        cv2.createTrackbar(name, win_name, int(init_pos), int(tb_max), on_change)
+        on_change(int(init_pos))
 
     created: set[str] = set()
     for ctrl_name in CTRL_ORDER:
