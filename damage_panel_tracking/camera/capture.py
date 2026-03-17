@@ -17,16 +17,12 @@ def _prefer_v4l2_backend(device: Any) -> bool:
     return False
 
 
-def _open_capture(device: Any) -> cv2.VideoCapture:
+def _open_capture(device: Any, resolved_dev: str) -> cv2.VideoCapture:
     """Prefer V4L2 for Linux camera devices, then fall back to default backend."""
     # バックエンドのフォールバック戦略つきでカメラを開く。
-    resolved_dev = dev_to_path(device)
-    if isinstance(device, int):
-        open_device = device
-    else:
-        open_device = resolved_dev or device
+    open_device = resolved_dev or device
 
-    if _prefer_v4l2_backend(device):
+    if bool(resolved_dev) or _prefer_v4l2_backend(device):
         cap = cv2.VideoCapture(open_device, cv2.CAP_V4L2)
         if cap.isOpened():
             return cap
@@ -34,7 +30,7 @@ def _open_capture(device: Any) -> cv2.VideoCapture:
     cap = cv2.VideoCapture(open_device)
     if cap.isOpened():
         return cap
-    raise RuntimeError(f"Failed to open camera: {device}")
+    raise RuntimeError(f"Failed to open camera: {device} (resolved: {open_device})")
 
 
 def _fourcc_to_str(v: float) -> str:
@@ -47,7 +43,12 @@ def _fourcc_to_str(v: float) -> str:
 
 def setup_camera(device: Any, capture_cfg: Dict[str, Any], init_ctrls: Dict[str, Any]) -> Tuple[cv2.VideoCapture, str]:
     # カメラを開き、キャプチャ形式を要求し、起動時制御を適用する。
-    cap = _open_capture(device)
+    dev_path = dev_to_path(device)
+    cap = _open_capture(device, dev_path)
+    if isinstance(device, str):
+        req = device.strip()
+        if req and dev_path and req != dev_path:
+            print(f"[INFO] camera device resolved: {req} -> {dev_path}")
 
     fourcc = str(capture_cfg.get("fourcc", "MJPG"))
     width = int(capture_cfg.get("width", 800))
@@ -62,7 +63,6 @@ def setup_camera(device: Any, capture_cfg: Dict[str, Any], init_ctrls: Dict[str,
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     cap.set(cv2.CAP_PROP_FPS, fps)
 
-    dev_path = dev_to_path(device)
     apply_camera_init(dev_path, cap, init_ctrls)
 
     try:

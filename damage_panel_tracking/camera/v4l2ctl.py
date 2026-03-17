@@ -19,6 +19,7 @@ _CTRL_BOOL_PATTERN = re.compile(
     r".*default=([-]?\d+)\s+value=([-]?\d+)"
     r"(?:\s+flags=(.+))?\s*$"
 )
+_VIDEO_NODE_PATH_PATTERN = re.compile(r"^/dev/video\d+$")
 
 
 def dev_to_path(dev: Any) -> str:
@@ -33,6 +34,27 @@ def dev_to_path(dev: Any) -> str:
             return False
         return os.major(st.st_rdev) == 81
 
+    def _canonical_video_node(path: str) -> str:
+        # /dev/recog_camera など同一ノードの別名入力を、/dev/videoXへ正規化する。
+        if not _is_video4linux_node(path):
+            return ""
+        if _VIDEO_NODE_PATH_PATTERN.match(path):
+            return path
+
+        try:
+            names = [n for n in os.listdir("/dev") if n.startswith("video") and n[5:].isdigit()]
+        except OSError:
+            return path
+
+        for name in sorted(names, key=lambda n: int(n[5:])):
+            candidate = f"/dev/{name}"
+            try:
+                if os.path.samefile(candidate, path):
+                    return candidate
+            except OSError:
+                continue
+        return path
+
     if isinstance(dev, int):
         return f"/dev/video{dev}"
     if isinstance(dev, str):
@@ -44,11 +66,12 @@ def dev_to_path(dev: Any) -> str:
 
         # /dev/camera_front や /dev/v4l/by-id/* のようなシンボリックリンクを解決する。
         real = os.path.realpath(s)
-        if _is_video4linux_node(real):
-            return real
+        canonical = _canonical_video_node(real)
+        if canonical:
+            return canonical
 
         # 既存挙動の後方互換: /dev/videoX 形式は未解決でもそのまま返す。
-        if re.match(r"^/dev/video\d+$", s):
+        if _VIDEO_NODE_PATH_PATTERN.match(s):
             return s
     return ""
 
