@@ -47,6 +47,7 @@ from .ui.gui import create_setting_gui
 VALID_TARGET_COLORS: tuple[ColorName, ColorName] = ("blue", "red")
 ROBOAPP_CONFIG_DIR = "roboapp"
 ROBOAPP_CONFIG_FILE = "damage_panel_recog_config.yaml"
+PANEL_CAMERA_FRAME_TIMEOUT_SEC = 5.0
 
 
 class TargetColorState:
@@ -175,9 +176,15 @@ def _apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> None:
     )
 
 
-def _read_first_frame(cap: cv2.VideoCapture, *, camera_label: str) -> Any:
+def _read_first_frame(
+    cap: cv2.VideoCapture,
+    *,
+    camera_label: str,
+    max_wait_sec: float | None = None,
+) -> Any | None:
     # 有効な最初の1フレームが取得できるまで待機する。
     attempts = 0
+    started_at = time.monotonic()
     while True:
         ok, frame = cap.read()
         if ok:
@@ -185,6 +192,8 @@ def _read_first_frame(cap: cv2.VideoCapture, *, camera_label: str) -> Any:
         attempts += 1
         if attempts % 100 == 0:
             print(f"[WARN] waiting for first frame from {camera_label}...")
+        if max_wait_sec is not None and (time.monotonic() - started_at) >= max_wait_sec:
+            return None
         time.sleep(0.01)
 
 
@@ -248,7 +257,17 @@ def main() -> int:
         viz = TrackVizState(history_len=int(cfg["tracking"]["history_len"]))
 
         # 実際にネゴシエーションされた結果の画像サイズを得る（サイズ取得専用）
-        negotiated_panel_frame = _read_first_frame(cap, camera_label="panel_recog_camera")
+        negotiated_panel_frame = _read_first_frame(
+            cap,
+            camera_label="panel_recog_camera",
+            max_wait_sec=PANEL_CAMERA_FRAME_TIMEOUT_SEC,
+        )
+        if negotiated_panel_frame is None:
+            print(
+                "[ERROR] failed to receive frame from panel_recog_camera for "
+                f"{PANEL_CAMERA_FRAME_TIMEOUT_SEC:.1f}s at startup. exiting."
+            )
+            return 1
         panel_frame_size = (int(negotiated_panel_frame.shape[1]), int(negotiated_panel_frame.shape[0]))
 
         # publish有効時は非同期publisherプロセスを起動する。
@@ -312,13 +331,28 @@ def main() -> int:
         frame_idx = 0
         last_target_color = target_color_state.get()
         previous_target_track_id: str | None = None
+        frame_read_fail_started_at: float | None = None
 
         # メインループで取得・検出追跡・描画・必要ならpublishを行う。
         while True:
             # フレーム取得
             ret, frame = cap.read()
             if not ret:
-                continue            
+                if frame_read_fail_started_at is None:
+                    frame_read_fail_started_at = time.monotonic()
+                    print("[WARN] frame grab failed from panel_recog_camera. waiting for recovery...")
+                elif (time.monotonic() - frame_read_fail_started_at) >= PANEL_CAMERA_FRAME_TIMEOUT_SEC:
+                    print(
+                        "[ERROR] failed to receive frame from panel_recog_camera for "
+                        f"{PANEL_CAMERA_FRAME_TIMEOUT_SEC:.1f}s. exiting."
+                    )
+                    return 1
+                time.sleep(0.01)
+                continue
+            if frame_read_fail_started_at is not None:
+                recovered_sec = time.monotonic() - frame_read_fail_started_at
+                print(f"[INFO] frame grab recovered from panel_recog_camera after {recovered_sec:.2f}s")
+                frame_read_fail_started_at = None
 
             # 座標変換セッションが有効な場合、デバッグ用main_cameraフレームを取得
             main_frame = None
