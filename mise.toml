@@ -1,7 +1,12 @@
+min_version = "2026.10.17"
+
+[settings]
+lockfile = true
+
 [tools]
-buf = "latest"
+buf = "1.75"
 protoc = "32.1"
-uv = "0.9"
+uv = "0.13.9"
 
 [tasks.fetch]
 run = "git submodule update --init --recursive"
